@@ -424,6 +424,7 @@ const PasoRutina RUTINA[] = {
   { 'f', 30 },
   { 'z', 0 }, { 'z', 180 },
 };
+// olanda
 constexpr uint8_t RUTINA_PASOS = sizeof(RUTINA) / sizeof(RUTINA[0]);
 constexpr uint32_t RUTINA_PAUSA_MS = 300;         // entre movimientos, para que se asiente
 constexpr uint32_t RUTINA_PAUSA_SERVO_MS = 1000;  // para que el servo llegue
