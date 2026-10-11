@@ -44,6 +44,22 @@ constexpr uint8_t MPU_DIRECCION = 0x68;
 constexpr float GIRO_LSB_POR_GPS = 65.5f;   // sensibilidad para el rango +-500 grados/s
 constexpr float YAW_SIGNO = 1.0f;           // cambiar a -1.0f si el yaw crece al reves
 
+// Multiplexor I2C TCA9548A (SDA 20, SCL 21). A0-A2 a GND = 0x70
+constexpr uint8_t TCA_DIRECCION = 0x70;
+
+// TCS34725 - sensores de color, cada uno en su canal del multiplexor
+constexpr uint8_t NUM_SENSORES_COLOR = 2;
+const uint8_t CANAL_COLOR[NUM_SENSORES_COLOR] = { 0, 1 };   // SD0/SC0, SD1/SC1
+constexpr uint8_t TCS_DIRECCION = 0x29;
+constexpr uint8_t TCS_ATIME = 0xEB;          // integracion 50 ms  (256 - 50/2.4)
+constexpr uint8_t TCS_GANANCIA = 0x01;       // 0x00=1x 0x01=4x 0x02=16x 0x03=60x
+constexpr uint16_t COLOR_PERIODO_MS = 300;   // cada cuanto imprime el modo continuo 'cc'
+constexpr uint16_t COLOR_INTEGRACION_MS = 55; // espera entre muestras al calibrar (>= integracion)
+constexpr uint8_t COLOR_MUESTRAS_CAL = 8;     // muestras promediadas al calibrar / aprender
+constexpr float COLOR_DIST_MAX = 0.10f;      // distancia maxima para aceptar un color aprendido
+constexpr float COLOR_BRILLO_MIN = 0.08f;    // por debajo de esto no hay nada que clasificar
+constexpr int COLOR_EEPROM_DIR = 0;          // donde se guarda la calibracion
+
 // Ajustar en vivo -> Ganancias PID
 struct Parametros {
   // Velocidad de cada motor (PI + feedforward)
