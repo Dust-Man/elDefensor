@@ -168,10 +168,15 @@ float distObjetivoMM = 0;
 long cuentasInicio[NUM_MOTORES];
 
 void aplicarParametros() {
+  // OJO: el 5o argumento de configurar() es errorThreshold, NO un limite de integral.
+  // Se pasa explicito en los tres para que ninguno herede un valor con otro significado.
+  // unaDireccion=true solo en las ruedas: protege al driver de un cambio de signo brusco.
+  // Rumbo y giro producen una correccion DIFERENCIAL que SI debe poder cambiar de signo
+  // (asi corrigen hacia los dos lados) -> unaDireccion=false.
   for (uint8_t i = 0; i < NUM_MOTORES; i++)
-    pidVel[i].configurar(P.velKp, P.velKi, 0.0f, P.maxPwm, P.velIntMax);
-  pidRumbo.configurar(P.rumboKp, P.rumboKi, P.rumboKd, P.rumboMax, P.rumboMax * 0.5f);
-  pidGiro.configurar(P.giroKp, 0.0f, P.giroKd, P.giroMax, 0.0f);
+    pidVel[i].configurar(P.velKp, P.velKi, 0.0f, P.maxPwm, P.velErrorThreshold, true);
+  pidRumbo.configurar(P.rumboKp, P.rumboKi, P.rumboKd, P.rumboMax, 0.0f, false);
+  pidGiro.configurar(P.giroKp,   0.0f,      P.giroKd,  P.giroMax,  0.0f, false);
 }
 
 //Retroalimentacion aplicada a los 4 PID, cada 20ms
@@ -190,10 +195,12 @@ void lazoVelocidad(float objIzq, float objDer, float dt) {
   velObjetivo[M_DD] = velObjetivo[M_TD] = objDer;
   for (uint8_t i = 0; i < NUM_MOTORES; i++) {
     float obj = velObjetivo[i];
-    float ff = 0;
-    if (obj > 0.5f)       ff =   P.pwmArranque[i] + P.ffGanancia[i] * obj;
-    else if (obj < -0.5f) ff = -(P.pwmArranque[i] - P.ffGanancia[i] * obj);
-    float u = pidVel[i].calcular(obj, velMedida[i], dt, ff);
+    // La direccion autorizada en este ciclo es la que pidio la capa de arriba.
+    // Si el PID quisiera salir al otro lado (p.ej. al frenar al final del tramo,
+    // con la integral todavia cargada), se fuerza a 0 en vez de invertir la
+    // polaridad del puente con la rueda girando.
+    pidVel[i].fijarDireccionPermitida(obj >= 0);
+    float u = pidVel[i].calcular(obj, velMedida[i], dt);
     motorAplicar(i, u);
   }
 }
@@ -307,7 +314,8 @@ void pruebaSignos() {
 }
 
 // 'v<pwm>': los 4 motores al mismo PWM fijo; imprime la velocidad real en mm/s.
-// Sirve para calcular ffGanancia y pwmArranque.
+// Ya no alimenta ningun feedforward: sirve para verificar que las 4 ruedas
+// responden parecido al mismo PWM.
 void pruebaVelocidad(int pwm) {
   pwm = constrain(pwm, 0, (int)P.maxPwm);
   for (uint8_t i = 0; i < NUM_MOTORES; i++) motorAplicar(i, pwm);

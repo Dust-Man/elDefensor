@@ -60,20 +60,26 @@ constexpr float COLOR_DIST_MAX = 0.10f;      // distancia maxima para aceptar un
 constexpr float COLOR_BRILLO_MIN = 0.08f;    // por debajo de esto no hay nada que clasificar
 constexpr int COLOR_EEPROM_DIR = 0;          // donde se guarda la calibracion
 
-// Ajustar en vivo -> Ganancias PID
+// Ganancias PID (se aplican en aplicarParametros(), solo desde setup())
 struct Parametros {
-  // Velocidad de cada motor (PI + feedforward)
+  // Velocidad de cada motor: PID PURO, sin feedforward.
+  // La integral ahora carga todo el PWM de regimen (antes lo daba el ff), por eso
+  // NO hay limite propio de integral: su unica cota es salidaMax via anti-windup.
   float velKp = 0.4f; //Que tanto reacciona cada rueda frente al error
-  float velKi = 1.5f; //Que tanto tiempo esta diespuesta a esperar si falla mucho
-  float velIntMax = 100.0f; //Limite de frustracion p rueda
+  float velKi = 1.5f; //Que tanto tiempo esta dispuesta a esperar si falla mucho
+  float velErrorThreshold = 1.0f; // mm/s - banda muerta de la integral (solo la
+                                  // integral; P sigue corrigiendo). CALIBRAR: con
+                                  // esta calibracion 1 tick por ciclo de 20 ms son
+                                  // ~10.6 mm/s, asi que 1.0 queda por debajo de la
+                                  // resolucion del encoder y casi no actua. Si zumba
+                                  // o caza en reposo, subir hacia ~5.
   float velFiltro = 0.3f;  //
-  float pwmArranque[NUM_MOTORES] = { 40, 40, 45, 50 };          // Calibrar PWM minimo para que cada rueda empiece a girar
-  float ffGanancia[NUM_MOTORES]  = { 0.5681, 0.4651, 0.4608, 0.5050 };  // Calibrar qué tan rápido sube el PWM mientras pido velocidad
 
-
-  // PWM 100 -> mm/s: DI=635  TI=604  DD=606  TD=632  
-  // PWM 200 -> mm/s: DI=811  TI=819  DD=823  TD=830  
-  //DI=304  TI=308  DD=312  TD=318 
+  // Medido en lazo abierto con 'v<pwm>'. Ya no alimenta ningun feedforward;
+  // queda como referencia para verificar que las 4 ruedas responden parecido.
+  // PWM 100 -> mm/s: DI=635  TI=604  DD=606  TD=632
+  // PWM 200 -> mm/s: DI=811  TI=819  DD=823  TD=830
+  //DI=304  TI=308  DD=312  TD=318
   //DI=411  TI=416  DD=422  TD=426
 
   // Mantener rumbo recto
