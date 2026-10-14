@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include <Servo.h>   // Autor: Carlos Parrilla
+#include <Servo.h>
 #include <EEPROM.h>
 #include "config.h"
 #include "pid.h"
@@ -15,7 +15,7 @@ volatile long cuentas[NUM_MOTORES] = { 0, 0, 0, 0 }; //Pulsos por encoder de mot
 int8_t signoEnc[NUM_MOTORES]; //Signos + - por motor
 
 uint32_t tInicioMov = 0;   // para el tiempo máximo de seguridad
-bool rutinaActiva = false;   // Autor: Carlos Parrilla -- la rutina 'r' esta corriendo
+bool rutinaActiva = false;   
 
 // Cada que canal A cambia de estado se ejecuta 
 static inline void flancoEncoder(uint8_t i) {
@@ -732,6 +732,95 @@ void imprimirColorContinuo() {
   colorImprimirTodos();
 }
 
+// ---------------- Ultrasonicos HC-SR04 ----------------
+// Se disparan de uno en uno para que el eco de uno no lo escuche otro.
+// pulseIn bloquea como maximo ~US_DIST_MAX_CM*58 us por sensor (~12 ms con 200 cm).
+const char* const NOMBRE_US[NUM_ULTRASONICOS] = { "frente", "izq", "der" };
+const float US_SIN_ECO = -1.0f;        // nada dentro de US_DIST_MAX_CM (o sensor desconectado)
+const float US_NO_ASIGNADO = -2.0f;    // pines aun en US_SIN_PIN
+const unsigned long US_TIMEOUT_US = (unsigned long)(US_DIST_MAX_CM * 58.0f) + 1000;   // +1 ms: el HC-SR04 tarda en empezar el eco
+bool usContinuo = false;   // 'uu' imprime cada US_PERIODO_MS
+
+bool ultrasonicoAsignado(uint8_t i) {
+  return PIN_US_TRIG[i] != US_SIN_PIN && PIN_US_ECHO[i] != US_SIN_PIN;
+}
+
+void ultrasonicosIniciar() {
+  for (uint8_t i = 0; i < NUM_ULTRASONICOS; i++) {
+    if (!ultrasonicoAsignado(i)) continue;
+    pinMode(PIN_US_TRIG[i], OUTPUT);
+    digitalWrite(PIN_US_TRIG[i], LOW);
+    pinMode(PIN_US_ECHO[i], INPUT);
+  }
+}
+
+// Distancia en cm, o US_SIN_ECO / US_NO_ASIGNADO
+float ultrasonicoLeerCm(uint8_t i) {
+  if (!ultrasonicoAsignado(i)) return US_NO_ASIGNADO;
+  digitalWrite(PIN_US_TRIG[i], LOW);
+  delayMicroseconds(2);
+  digitalWrite(PIN_US_TRIG[i], HIGH);   // pulso de disparo de 10 us
+  delayMicroseconds(10);
+  digitalWrite(PIN_US_TRIG[i], LOW);
+  unsigned long t = pulseIn(PIN_US_ECHO[i], HIGH, US_TIMEOUT_US);
+  if (t == 0) return US_SIN_ECO;
+  return t / 58.0f;   // ida y vuelta a ~343 m/s
+}
+
+void ultrasonicosImprimir(const float d[NUM_ULTRASONICOS]) {
+  Serial.print(F("US"));
+  for (uint8_t i = 0; i < NUM_ULTRASONICOS; i++) {
+    Serial.print(F("  ")); Serial.print(NOMBRE_US[i]); Serial.print('=');
+    if (d[i] == US_NO_ASIGNADO)  Serial.print(F("sin pin"));
+    else if (d[i] == US_SIN_ECO) Serial.print(F("---"));
+    else { Serial.print(d[i], 1); Serial.print(F("cm")); }
+  }
+  Serial.println();
+}
+
+// Una lectura de cada uno, con pausa entre sensores para que no se crucen los ecos
+void ultrasonicosLeerTodos() {
+  float d[NUM_ULTRASONICOS];
+  for (uint8_t i = 0; i < NUM_ULTRASONICOS; i++) {
+    d[i] = ultrasonicoLeerCm(i);
+    if (ultrasonicoAsignado(i)) delay(30);
+  }
+  ultrasonicosImprimir(d);
+}
+
+// Tecla 'u' para depurar los ultrasonicos. linea[1] es el subcomando.
+void comandoUltrasonicos(char* linea) {
+  switch (linea[1]) {
+    case '\0': ultrasonicosLeerTodos(); break;               // u    una lectura de cada sensor
+    case 'u':  usContinuo = !usContinuo;                     // uu   continuo on/off
+               Serial.println(usContinuo ? F("Ultrasonicos continuo ON") : F("Ultrasonicos continuo OFF")); break;
+    case 'i':                                                // ui   pines de cada sensor
+      for (uint8_t i = 0; i < NUM_ULTRASONICOS; i++) {
+        Serial.print(NOMBRE_US[i]); Serial.print(F(": "));
+        if (!ultrasonicoAsignado(i)) { Serial.println(F("sin pin (definir en config.h)")); continue; }
+        Serial.print(F("TRIG=")); Serial.print(PIN_US_TRIG[i]);
+        Serial.print(F(" ECHO=")); Serial.println(PIN_US_ECHO[i]);
+      }
+      break;
+    default:
+      Serial.println(F("Ultrasonicos: u lectura | uu continuo | ui pines"));
+  }
+}
+
+// Continuo: un sensor por llamada (no bloquea el lazo con los tres juntos) e imprime
+// cuando completa la vuelta. Cada sensor se dispara cada US_PERIODO_MS.
+void imprimirUltrasonicoContinuo() {
+  static uint32_t tUltimo = 0;
+  static uint8_t i = 0;
+  static float d[NUM_ULTRASONICOS];
+  if (!usContinuo || millis() - tUltimo < US_PERIODO_MS / NUM_ULTRASONICOS) return;
+  tUltimo = millis();
+  d[i] = ultrasonicoLeerCm(i);
+  if (++i < NUM_ULTRASONICOS) return;
+  i = 0;
+  ultrasonicosImprimir(d);
+}
+
 // ---------------- Rutina 'r' ----------------  Autor: Carlos Parrilla
 // Cada paso espera a que el anterior termine (estado DETENIDO) y una pausa corta.
 // 'f' = avanzar cm, 'g' = girar grados (relativo), 'n' = girar al rumbo absoluto
@@ -841,7 +930,8 @@ void procesarComando(char* linea) {
     case 'z': comandoServos(linea, quieto); break;   // Autor: Carlos Parrilla
     case 'r': if (quieto && !rutinaActiva) iniciarRutina(); break;   // Autor: Carlos Parrilla
     case 'c': comandoColor(linea, quieto); break;
-    default:  Serial.println(F("Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color"));
+    case 'u': comandoUltrasonicos(linea); break;
+    default:  Serial.println(F("Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos"));
   }
 }
 
@@ -896,8 +986,9 @@ void setup() {
 
   colorCalCargar();
   colorIniciarTodos();
+  ultrasonicosIniciar();
 
-  Serial.println(F("Listo. Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color"));   // Autor: Carlos Parrilla (z servos, r rutina)
+  Serial.println(F("Listo. Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos"));   // Autor: Carlos Parrilla (z servos, r rutina)
   tControl = millis();
 }
 
@@ -929,5 +1020,6 @@ void loop() {
   actualizarRutina();   // Autor: Carlos Parrilla
   imprimirDebug();
   imprimirColorContinuo();
+  imprimirUltrasonicoContinuo();
 }
 

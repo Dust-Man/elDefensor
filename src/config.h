@@ -60,6 +60,15 @@ constexpr float COLOR_DIST_MAX = 0.10f;      // distancia maxima para aceptar un
 constexpr float COLOR_BRILLO_MIN = 0.08f;    // por debajo de esto no hay nada que clasificar
 constexpr int COLOR_EEPROM_DIR = 0;          // donde se guarda la calibracion
 
+// Ultrasonicos HC-SR04 -> FRENTE, IZQ, DER
+// PINES POR DEFINIR: un sensor con US_SIN_PIN se ignora (no se toca ningun pin).
+constexpr uint8_t NUM_ULTRASONICOS = 3;
+constexpr uint8_t US_SIN_PIN = 255;
+const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 37, 39, 41 };
+const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 36, 38, 40 };
+constexpr float US_DIST_MAX_CM = 200.0f;     // mas lejos que esto cuenta como "sin eco" (acota el bloqueo)
+constexpr uint16_t US_PERIODO_MS = 150;      // cada cuanto imprime el modo continuo 'uu'
+
 // Ganancias PID (se aplican en aplicarParametros(), solo desde setup())
 struct Parametros {
   // Velocidad de cada motor: PID PURO, sin feedforward.
