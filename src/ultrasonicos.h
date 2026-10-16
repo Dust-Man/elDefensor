@@ -22,6 +22,10 @@ void ultrasonicosLeerTodos();
 // Laterales mientras avanza (centrado). Llamar Actualizar una vez por ciclo de
 // control: dispara un solo sensor, alternando izq/der (bloquea <= ~2 ms).
 void ultrasonicosLateralReiniciar();   // al iniciar cada avance
+// Para pistas donde la pared no esta pegada a la celda: cm que se suman al
+// objetivo (US_LATERAL_OBJ_*) y al maximo (US_LATERAL_MAX_CM) de cada lado.
+// 0, 0 = laberinto (lo de siempre).
+void ultrasonicosLateralDesfase(float izqCm, float derCm);
 void ultrasonicosLateralActualizar();
 // Ultimas distancias aceptadas, o US_SIN_ECO si ese lado no tiene pared confiable
 void ultrasonicosLateral(float& izq, float& der);

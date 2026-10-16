@@ -25,8 +25,9 @@ void colorAprender(uint8_t s, int n);
 
 bool colorLeerCrudo(uint8_t s, uint16_t& c, uint16_t& r, uint16_t& g, uint16_t& b);
 // Lectura clasificada del sensor s: color = indice de NOMBRE_COLOR o COLOR_NINGUNO.
+// Si blanco no es nullptr, dice si la lectura es blanco (COLOR_BLANCO_MIN).
 // false si no hay dato nuevo valido. No bloquea (el sensor integra solo).
-bool colorDetectar(uint8_t s, int8_t& color);
+bool colorDetectar(uint8_t s, int8_t& color, bool* blanco = nullptr);
 
 void colorImprimir(uint8_t s);
 void colorImprimirTodos();

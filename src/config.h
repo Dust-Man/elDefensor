@@ -62,6 +62,7 @@ constexpr uint16_t COLOR_INTEGRACION_MS = 55; // espera entre muestras al calibr
 constexpr uint8_t COLOR_MUESTRAS_CAL = 8;     // muestras promediadas al calibrar / aprender
 constexpr float COLOR_DIST_MAX = 0.10f;      // distancia maxima para aceptar un color aprendido
 constexpr float COLOR_BRILLO_MIN = 0.08f;    // por debajo de esto no hay nada que clasificar
+constexpr float COLOR_BLANCO_MIN = 0.7f;     // los 3 canales corregidos arriba de esto = blanco (cinta, franjas)
 constexpr int COLOR_EEPROM_DIR = 0;          // donde se guarda la calibracion
 
 // Ultrasonicos HC-SR04 -> FRENTE, IZQ, DER
@@ -112,7 +113,7 @@ constexpr float ALINEAR_MAX_CM = 6.0f;          // errores mayores se ignoran (l
 // Color del piso. El sensor va adelante del centro: lee la celda siguiente
 // mientras avanza, asi detecta la meta roja antes de pisarla y regresa.
 constexpr uint8_t SENSOR_COLOR_PISO = 0;     // cual TCS34725 mira al piso al frente
-constexpr float COLOR_OFFSET_MM = 80.0f;    // MEDIR: del centro del robot al sensor, hacia adelante
+constexpr float COLOR_OFFSET_MM = 100.0f; //80   // MEDIR: del centro del robot al sensor, hacia adelante
 constexpr float COLOR_MARGEN_MM = 10.0f;     // no leer cerca de la orilla entre celdas (franja blanca)
 constexpr uint8_t COLOR_LECTURAS_MIN = 2  ;    // lecturas seguidas iguales para aceptar un color
 
@@ -126,6 +127,30 @@ constexpr uint32_t PISTA_A_LIMITE_EXPLORAR_MS = 180000;
 // (incluida la meta roja). false = explora todo el laberinto.
 constexpr bool PISTA_A_TERMINAR_CON_COLORES = true;
 constexpr uint32_t PISTA_A_PAUSA_META_MS = 2000;   // quieto en la meta para que el juez la cuente
+
+// ---------------- Pista B (lineas blancas y colores) ----------------
+// Desde que seccion arranca (la 1, pelota, aun no esta). 2 = checkpoint IN de
+// las lineas, 3 = checkpoint F (para probar la seccion 3 sola).
+constexpr uint8_t PISTA_B_SECCION_INICIAL = 2;
+
+// Seccion 2: 2 filas x B_COLUMNAS de verde. IN a la izquierda de la fila de
+// abajo, F a la derecha de la fila de arriba. Sensores: S0 izquierdo, S1 derecho
+// (ambos COLOR_OFFSET_MM adelante del centro).
+constexpr uint8_t B_COLUMNAS = 4;
+constexpr int8_t B_FIN_LADO = 1;             // fila de F: +1 = izquierda (arriba), -1 = derecha
+constexpr float B_VEL_LINEAS = 100.0f;       // mm/s mientras busca lineas (frena antes de pisarlas)
+constexpr uint8_t B_LECTURAS_BLANCO = 2;     // lecturas blancas seguidas para dar una linea
+constexpr float B_MARGEN_SEPARACION_MM = 40.0f;   // ignora el blanco junto a la franja IN|verde
+// Centrado con las paredes de los lados mientras avanza (usa la calibracion
+// US_LATERAL_* del laberinto). En la seccion 2 las paredes estan a los lados de
+// las 2 filas: lo que debe leer cada sensor sale de la fila en la que va.
+// false si en la pista real no hay paredes ahi.
+constexpr bool B_CENTRAR_PAREDES = true;
+
+// Seccion 3: cada color dice a que celda ir (respecto a la pista; "arriba" =
+// hacia donde ve el robot al salir de F). Verde = FIN.
+constexpr uint8_t B_S3_LECTURAS = 5;         // lecturas por sensor en cada celda (voto)
+constexpr uint8_t B_S3_MAX_PASOS = 12;       // seguridad: maximo de celdas
 
 // Ganancias PID (se aplican en aplicarParametros(), solo desde setup())
 struct Parametros {

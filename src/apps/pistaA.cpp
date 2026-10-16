@@ -9,6 +9,7 @@
 #include "movimiento.h"
 #include "color.h"
 #include "ultrasonicos.h"
+#include "arranque.h"
 
 // La casilla de inicio cambia por ronda y no se puede pre-mapear: se usa una
 // cuadricula virtual de 9x9 con el inicio al centro, asi el laberinto real de 5x5
@@ -421,22 +422,6 @@ void imprimirMapa() {
   }
   for (int8_t x = minX; x <= maxX; x++) Serial.print(walls[x][minY][2] ? F("+---") : F("+   "));
   Serial.println('+');
-}
-
-// Con boton: espera a que lo presionen y lo suelten. Sin boton: INICIO_ESPERA_MS.
-void esperarArranque() {
-  if (PIN_BOTON_INICIO != SIN_PIN) {
-    pinMode(PIN_BOTON_INICIO, INPUT_PULLUP);
-    Serial.println(F("Listo. Presiona el boton para arrancar."));
-    while (digitalRead(PIN_BOTON_INICIO) == HIGH) {}
-    delay(30);
-    while (digitalRead(PIN_BOTON_INICIO) == LOW) {}
-    delay(500);   // que la mano se aleje
-  } else {
-    Serial.print(F("Arrancando en ")); Serial.print(INICIO_ESPERA_MS / 1000); Serial.println(F(" s"));
-    delay(INICIO_ESPERA_MS);
-  }
-  controlReiniciarReloj();
 }
 
 void correrPistaA() {

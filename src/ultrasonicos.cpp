@@ -84,6 +84,13 @@ struct Lateral {
 };
 Lateral lateral[2];   // 0 = izq, 1 = der
 uint8_t lateralSiguiente = 0;
+// cm que se suman al objetivo y al maximo de cada lado (0 = celda del laberinto)
+float desfaseLateral[2] = { 0, 0 };
+
+void ultrasonicosLateralDesfase(float izqCm, float derCm) {
+  desfaseLateral[0] = izqCm;
+  desfaseLateral[1] = derCm;
+}
 
 void ultrasonicosLateralReiniciar() {
   for (uint8_t k = 0; k < 2; k++) {
@@ -96,8 +103,9 @@ void ultrasonicosLateralActualizar() {
   uint8_t k = lateralSiguiente;
   lateralSiguiente = 1 - k;
   Lateral& L = lateral[k];
-  float d = ultrasonicoLeerCm(k == 0 ? US_IZQ : US_DER, US_LATERAL_MAX_CM);
-  bool enRango = d > US_LATERAL_MIN_CM && d < US_LATERAL_MAX_CM;
+  float maxCm = US_LATERAL_MAX_CM + desfaseLateral[k];
+  float d = ultrasonicoLeerCm(k == 0 ? US_IZQ : US_DER, maxCm);
+  bool enRango = d > US_LATERAL_MIN_CM && d < maxCm;
   // Se acepta con dos lecturas seguidas parecidas: un filo o un hueco da un salto
   bool estable = enRango && L.previa > 0 && fabs(d - L.previa) <= US_LATERAL_SALTO_CM;
   L.previa = enRango ? d : US_SIN_ECO;
@@ -118,8 +126,10 @@ bool ultrasonicosErrorLateral(float& eCm, bool& ambas) {
   bool izq = lateralVigente(0);
   bool der = lateralVigente(1);
   ambas = izq && der;
-  if (ambas)    eCm = (lateral[0].cm - lateral[1].cm) / 2 - (US_LATERAL_OBJ_IZQ_CM - US_LATERAL_OBJ_DER_CM) / 2;
-  else if (izq) eCm = lateral[0].cm - US_LATERAL_OBJ_IZQ_CM;
-  else if (der) eCm = US_LATERAL_OBJ_DER_CM - lateral[1].cm;
+  float objIzq = US_LATERAL_OBJ_IZQ_CM + desfaseLateral[0];
+  float objDer = US_LATERAL_OBJ_DER_CM + desfaseLateral[1];
+  if (ambas)    eCm = (lateral[0].cm - lateral[1].cm) / 2 - (objIzq - objDer) / 2;
+  else if (izq) eCm = lateral[0].cm - objIzq;
+  else if (der) eCm = objDer - lateral[1].cm;
   return izq || der;
 }

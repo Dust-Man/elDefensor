@@ -187,7 +187,7 @@ int8_t colorClasificar(uint8_t s, const float cor[3], float& dist) {
   return (dist <= COLOR_DIST_MAX) ? i : -1;
 }
 
-bool colorDetectar(uint8_t s, int8_t& color) {
+bool colorDetectar(uint8_t s, int8_t& color, bool* blanco) {
   if (!colorOk[s]) return false;
   uint16_t c, r, g, b;
   if (!colorLeerCrudo(s, c, r, g, b)) return false;
@@ -195,6 +195,8 @@ bool colorDetectar(uint8_t s, int8_t& color) {
   float cor[3], dist;
   colorCorregir(s, crudo, cor);
   color = colorClasificar(s, cor, dist);
+  // Blanco: los tres canales cerca de la referencia de blanco (cb)
+  if (blanco) *blanco = min(cor[0], min(cor[1], cor[2])) > COLOR_BLANCO_MIN;
   return true;
 }
 
