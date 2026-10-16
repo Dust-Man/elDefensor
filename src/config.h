@@ -22,7 +22,7 @@ constexpr float TICKS_POR_VUELTA  = 985.0f;   // CALBIRADO
 
 // Ajuste fino: pedir f100 (1 m), medir con cinta lo que avanzó en realidad y
 // poner FACTOR_DISTANCIA = real_cm / 100. Ej: avanzó 96 cm -> 0.96
-constexpr float FACTOR_DISTANCIA  = .98f;
+constexpr float FACTOR_DISTANCIA  = 1.02f;
 constexpr float MM_POR_TICK = PI * DIAMETRO_RUEDA_MM / TICKS_POR_VUELTA * FACTOR_DISTANCIA;
 
 // Seguridad: ningún movimiento puede durar más que esto
@@ -64,10 +64,52 @@ constexpr int COLOR_EEPROM_DIR = 0;          // donde se guarda la calibracion
 // PINES POR DEFINIR: un sensor con US_SIN_PIN se ignora (no se toca ningun pin).
 constexpr uint8_t NUM_ULTRASONICOS = 3;
 constexpr uint8_t US_SIN_PIN = 255;
-const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 37, 39, 41 };
-const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 36, 38, 40 };
+//const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 39, 37,  41 };
+//const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 38, 36,  40 };
+const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 39,  41, 37 };
+const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 38,  40, 36 };
 constexpr float US_DIST_MAX_CM = 200.0f;     // mas lejos que esto cuenta como "sin eco" (acota el bloqueo)
 constexpr uint16_t US_PERIODO_MS = 150;      // cada cuanto imprime el modo continuo 'uu'
+constexpr uint16_t US_PAUSA_MS = 30;         // entre disparos, para que no se crucen los ecos
+
+// Pin sin conectar (boton): el codigo lo ignora
+constexpr uint8_t SIN_PIN = 255;
+
+// Boton de arranque (a GND, usa INPUT_PULLUP). Con SIN_PIN arranca solo
+// tras INICIO_ESPERA_MS.
+constexpr uint8_t PIN_BOTON_INICIO = SIN_PIN;
+constexpr uint32_t INICIO_ESPERA_MS = 10000;
+
+// ---------------- Pista A (laberinto) ----------------
+constexpr float CELDA_MM = 300.0f;           // una unidad
+// iniciarGiro(+g) gira a la IZQUIERDA (yaw positivo); si el robot gira al
+// lado contrario en la pista, cambiar el signo.
+constexpr float GIRO_DERECHA_GRADOS = -90.0f;
+
+// Paredes: hay pared si el ultrasonico lee menos que esto. MEDIR con 'um' con el
+// robot centrado en una celda: pared pegada vs. la pared de la celda siguiente (~30 cm mas).
+constexpr float US_PARED_CM = 30.0f;
+constexpr uint8_t US_MUESTRAS = 3;           // mediana de cuantas lecturas por sensor
+
+// Centrado con la pared de enfrente al llegar a una celda (corrige el error de encoders)
+constexpr bool ALINEAR_CON_PARED = true;
+constexpr float US_FRENTE_OBJETIVO_CM = 7.0f;   // MEDIR: lectura de frente con el robot centrado
+constexpr float ALINEAR_MAX_CM = 6.0f;          // errores mayores se ignoran (lectura dudosa)
+
+// Color del piso. El sensor va adelante del centro: lee la celda siguiente
+// mientras avanza, asi detecta la meta roja antes de pisarla y regresa.
+constexpr uint8_t SENSOR_COLOR_PISO = 0;     // cual TCS34725 mira al piso al frente
+constexpr float COLOR_OFFSET_MM = 80.0f;    // MEDIR: del centro del robot al sensor, hacia adelante
+constexpr float COLOR_MARGEN_MM = 10.0f;     // no leer cerca de la orilla entre celdas (franja blanca)
+constexpr uint8_t COLOR_LECTURAS_MIN = 2  ;    // lecturas seguidas iguales para aceptar un color
+
+// Bonus 1: true = regresa por TODAS las unidades recorridas en orden inverso
+// (lo que pide el reglamento). false = solo por la ruta sin ciclos (mas rapido).
+constexpr bool RETORNO_EXACTO = true;
+// Despues de esto se deja de explorar y se va a la meta (si ya se conoce).
+// La ronda dura 6 min y el regreso exacto tarda casi lo mismo que la ida.
+constexpr uint32_t PISTA_A_LIMITE_EXPLORAR_MS = 180000;
+constexpr uint32_t PISTA_A_PAUSA_META_MS = 2000;   // quieto en la meta para que el juez la cuente
 
 // Ganancias PID (se aplican en aplicarParametros(), solo desde setup())
 struct Parametros {

@@ -1,0 +1,319 @@
+// Main de debugging: comandos por Serial para probar y calibrar cada parte.
+// Compilar/subir con el entorno [env:debug].
+#include <Arduino.h>
+#include "config.h"
+#include "movimiento.h"
+#include "servos.h"
+#include "color.h"
+#include "ultrasonicos.h"
+
+bool rutinaActiva = false;
+
+// ---- Pruebas en lazo abierto (sin PID). Robot LEVANTADO, ruedas al aire ----
+const char* const NOMBRE_MOTOR[NUM_MOTORES] = { "DI", "TI", "DD", "TD" };
+
+void imprimirCuentas() {
+  long c[NUM_MOTORES];
+  leerCuentas(c);
+  for (uint8_t i = 0; i < NUM_MOTORES; i++) {
+    Serial.print(NOMBRE_MOTOR[i]); Serial.print('='); Serial.print(c[i]); Serial.print(F("  "));
+  }
+  Serial.println();
+}
+
+// 'p': cada motor solo, PWM 120 por 0.8 s. Debe girar ADELANTE y contar POSITIVO.
+void pruebaSignos() {
+  soltarTodos();
+  for (uint8_t i = 0; i < NUM_MOTORES; i++) {
+    long a[NUM_MOTORES], b[NUM_MOTORES];
+    leerCuentas(a);
+    motorAplicar(i, 120);
+    delay(800);
+    motorAplicar(i, 0);
+    delay(400);
+    leerCuentas(b);
+    long d = b[i] - a[i];
+    Serial.print(NOMBRE_MOTOR[i]); Serial.print(F(": ")); Serial.print(d);
+    if (labs(d) < 20)  Serial.println(F("  SIN SENAL de encoder (o el motor no giro)"));
+    else if (d > 0)    Serial.println(F("  positivo -> OK si la rueda giro ADELANTE"));
+    else               Serial.println(F("  NEGATIVO -> si giro adelante: cambiar ENCODER_INVERTIDO"));
+  }
+  Serial.println(F("Si una rueda giro hacia ATRAS: cambiar MOTOR_INVERTIDO de ese motor."));
+}
+
+// 'v<pwm>': los 4 motores al mismo PWM fijo; imprime la velocidad real en mm/s.
+// Ya no alimenta ningun feedforward: sirve para verificar que las 4 ruedas
+// responden parecido al mismo PWM.
+void pruebaVelocidad(int pwm) {
+  pwm = constrain(pwm, 0, (int)P.maxPwm);
+  for (uint8_t i = 0; i < NUM_MOTORES; i++) motorAplicar(i, pwm);
+  delay(700);                                   // dejar que se estabilice
+  long a[NUM_MOTORES], b[NUM_MOTORES];
+  leerCuentas(a);
+  delay(1000);
+  leerCuentas(b);
+  soltarTodos();
+  Serial.print(F("PWM ")); Serial.print(pwm); Serial.print(F(" -> mm/s: "));
+  for (uint8_t i = 0; i < NUM_MOTORES; i++) {
+    Serial.print(NOMBRE_MOTOR[i]); Serial.print('=');
+    Serial.print((b[i] - a[i]) * MM_POR_TICK, 0); Serial.print(F("  "));
+  }
+  Serial.println();
+}
+
+// 10 s de espera antes de moverse, para alcanzar a desconectar el cable.
+// Autor: Carlos Parrilla
+void cuentaRegresiva() {
+  for (uint8_t s = 10; s > 0; s--) {
+    Serial.print(F("Arrancando en ")); Serial.print(s); Serial.println(F("..."));
+    delay(1000);
+  }
+  controlReiniciarReloj();
+}
+
+// ---------------- Color ----------------
+bool colorContinuo = false;   // 'cc' imprime cada COLOR_PERIODO_MS
+uint8_t colorActivo = 0;      // sensor al que aplican cb, cn, ca, cx  ('cs<n>' lo cambia)
+
+// Tecla 'c' para depurar los sensores de color. linea[1] es el subcomando.
+// c, cc, ci actuan sobre todos; cb, cn, ca, cx sobre el sensor activo (cs<n>).
+void comandoColor(char* linea, bool quieto) {
+  uint8_t s = colorActivo;
+  switch (linea[1]) {
+    case '\0': colorImprimirTodos(); break;                   // c    una lectura de cada sensor
+    case 'c':  colorContinuo = !colorContinuo;                // cc   continuo on/off
+               Serial.println(colorContinuo ? F("Color continuo ON") : F("Color continuo OFF")); break;
+    case 'i':  colorIniciarTodos(); break;                    // ci   reintentar inicio
+    case 'e':  escanearI2C(); break;                          // ce   escanear bus I2C
+    case 's': {                                               // cs<n> elegir sensor activo
+      int n = atoi(linea + 2);
+      if (n >= 0 && n < NUM_SENSORES_COLOR) colorActivo = n;
+      Serial.print(F("Sensor activo: S")); Serial.println(colorActivo);
+      break;
+    }
+    case 'b':  if (quieto) colorCalibrarExtremo(s, true); break;    // cb   calibrar blanco
+    case 'n':  if (quieto) colorCalibrarExtremo(s, false); break;   // cn   calibrar negro
+    case 'a':  if (quieto) colorAprender(s, linea[2] ? atoi(linea + 2) : -1); break;   // ca<n> aprender color n
+    case 'x':  colorCalDefecto(s); colorCalGuardar(s);       // cx   borrar calibracion
+               Serial.print(F("Calibracion de color borrada en S")); Serial.println(s); break;
+    default:
+      Serial.print(F("Color (activo S")); Serial.print(colorActivo);
+      Serial.println(F("): c lectura | cc continuo | ci reiniciar | ce escanear I2C | cs<n> sensor activo | cb blanco | cn negro | ca<n> aprender (ca = lista) | cx borrar"));
+  }
+}
+
+void imprimirColorContinuo() {
+  static uint32_t tUltimo = 0;
+  if (!colorContinuo || millis() - tUltimo < COLOR_PERIODO_MS) return;
+  tUltimo = millis();
+  colorImprimirTodos();
+}
+
+// ---------------- Ultrasonicos ----------------
+bool usContinuo = false;   // 'uu' imprime cada US_PERIODO_MS
+
+// Tecla 'u' para depurar los ultrasonicos. linea[1] es el subcomando.
+void comandoUltrasonicos(char* linea) {
+  switch (linea[1]) {
+    case '\0': ultrasonicosLeerTodos(); break;               // u    una lectura de cada sensor
+    case 'u':  usContinuo = !usContinuo;                     // uu   continuo on/off
+               Serial.println(usContinuo ? F("Ultrasonicos continuo ON") : F("Ultrasonicos continuo OFF")); break;
+    case 'i':                                                // ui   pines de cada sensor
+      for (uint8_t i = 0; i < NUM_ULTRASONICOS; i++) {
+        Serial.print(NOMBRE_US[i]); Serial.print(F(": "));
+        if (!ultrasonicoAsignado(i)) { Serial.println(F("sin pin (definir en config.h)")); continue; }
+        Serial.print(F("TRIG=")); Serial.print(PIN_US_TRIG[i]);
+        Serial.print(F(" ECHO=")); Serial.println(PIN_US_ECHO[i]);
+      }
+      break;
+    case 'm': {                                              // um   mediana (lo que usa la pista A)
+      float d[NUM_ULTRASONICOS];
+      for (uint8_t i = 0; i < NUM_ULTRASONICOS; i++) d[i] = ultrasonicoMedianaCm(i, US_MUESTRAS);
+      ultrasonicosImprimir(d);
+      break;
+    }
+    default:
+      Serial.println(F("Ultrasonicos: u lectura | uu continuo | um mediana | ui pines"));
+  }
+}
+
+// Continuo: un sensor por llamada (no bloquea el lazo con los tres juntos) e imprime
+// cuando completa la vuelta. Cada sensor se dispara cada US_PERIODO_MS.
+void imprimirUltrasonicoContinuo() {
+  static uint32_t tUltimo = 0;
+  static uint8_t i = 0;
+  static float d[NUM_ULTRASONICOS];
+  if (!usContinuo || millis() - tUltimo < US_PERIODO_MS / NUM_ULTRASONICOS) return;
+  tUltimo = millis();
+  d[i] = ultrasonicoLeerCm(i);
+  if (++i < NUM_ULTRASONICOS) return;
+  i = 0;
+  ultrasonicosImprimir(d);
+}
+
+// ---------------- Rutina 'r' ----------------  Autor: Carlos Parrilla
+// Cada paso espera a que el anterior termine (estado DETENIDO) y una pausa corta.
+// 'f' = avanzar cm, 'g' = girar grados (relativo), 'n' = girar al rumbo absoluto
+// (0 = el rumbo con el que empezo la rutina, "norte"), 'z' = servos a angulo logico.
+// Si los giros salen al lado contrario, cambiar el signo de RUTINA_GIRO.
+constexpr float RUTINA_GIRO = 90.0f;
+struct PasoRutina { char tipo; float valor; };
+const PasoRutina RUTINA[] = {
+  { 'f', 60 }, { 'g', RUTINA_GIRO },
+  { 'f', 60 }, { 'g', RUTINA_GIRO },
+  { 'f', 60 }, { 'g', RUTINA_GIRO },
+  { 'f', 30 }, { 'n', 0 },            // regresar a ver al norte
+  { 'f', 30 },
+  { 'z', 10 }, { 'z', 110 },
+};
+// olanda
+constexpr uint8_t RUTINA_PASOS = sizeof(RUTINA) / sizeof(RUTINA[0]);
+constexpr uint32_t RUTINA_PAUSA_MS = 300;         // entre movimientos, para que se asiente
+constexpr uint32_t RUTINA_PAUSA_SERVO_MS = 1000;  // para que el servo llegue
+
+uint8_t rutinaIndice = 0;
+float rutinaRumboInicial = 0;
+uint32_t rutinaTEspera = 0, rutinaPausa = 0;
+
+// Autor: Carlos Parrilla
+void iniciarRutina() {
+  cuentaRegresiva();
+  rutinaRumboInicial = yawObjetivo;   // "norte" = hacia donde ve al arrancar
+  rutinaIndice = 0;
+  rutinaPausa = 0;
+  rutinaTEspera = millis();
+  rutinaActiva = true;
+  Serial.println(F("Rutina iniciada (s para cancelar)"));
+}
+
+// Se llama en cada loop: cuando el robot termina un paso, lanza el siguiente.
+// Autor: Carlos Parrilla
+void actualizarRutina() {
+  if (!rutinaActiva) return;
+  if (estado == LIBRE) { rutinaActiva = false; Serial.println(F("Rutina cancelada")); return; }
+  if (estado != DETENIDO) { rutinaTEspera = millis(); return; }   // sigue moviendose
+  if (millis() - rutinaTEspera < rutinaPausa) return;
+
+  if (rutinaIndice >= RUTINA_PASOS) {
+    rutinaActiva = false;
+    Serial.println(F("Rutina terminada"));
+    return;
+  }
+  const PasoRutina& paso = RUTINA[rutinaIndice++];
+  Serial.print(F("Rutina paso ")); Serial.print(rutinaIndice);
+  Serial.print('/'); Serial.print(RUTINA_PASOS); Serial.print(F(": "));
+  Serial.print(paso.tipo); Serial.println(paso.valor, 0);
+  rutinaPausa = RUTINA_PAUSA_MS;
+  switch (paso.tipo) {
+    case 'f': iniciarAvance(paso.valor * 10.0f); break;
+    case 'g': iniciarGiro(paso.valor); break;
+    case 'n': {
+      // giro mas corto para quedar viendo al rumbo pedido
+      float delta = fmod(rutinaRumboInicial + paso.valor - yawObjetivo, 360.0f);
+      if (delta > 180.0f)  delta -= 360.0f;
+      if (delta < -180.0f) delta += 360.0f;
+      iniciarGiro(delta);
+      break;
+    }
+    case 'z': servosMover((int)paso.valor); rutinaPausa = RUTINA_PAUSA_SERVO_MS; break;
+  }
+  rutinaTEspera = millis();
+}
+
+// Tecla 'z' para depurar los servos. linea[1] es el subcomando.
+// Autor: Carlos Parrilla
+void comandoServos(char* linea, bool quieto) {
+  char sub = linea[1];
+  int valor = (sub == '\0') ? 0 : atoi(linea + 2);
+  switch (sub) {
+    case 'a': servosMover(valor); break;                  // za<g>  ir a g grados desde el cero
+    case 'm': servosMover(servoAngulo + valor); break;    // zm<g>  mover g grados (+/-) desde donde esta
+    case '0': servosMover(0); break;                      // z0     regresar al cero
+    case '1': servoIndividual(0, valor); break;           // z1<g>  solo servo 1, angulo crudo
+    case '2': servoIndividual(1, valor); break;           // z2<g>  solo servo 2, angulo crudo
+    case 'b': if (quieto) servosBarrido(); break;         // zb     barrido completo
+    case 's': servosSoltar(); break;                      // zs     soltar (detach)
+    case 'i': servosImprimir(); break;                    // zi     ver estado
+    default:
+      Serial.println(F("Servos: za<g> ir a g | zm<+-g> mover g | z0 cero | z1<g>/z2<g> un servo crudo | zb barrido | zs soltar | zi info"));
+  }
+}
+
+void procesarComando(char* linea) {
+  char cmd = linea[0];
+  float valor = atof(linea + 1);
+  bool quieto = (estado == DETENIDO || estado == LIBRE);
+  switch (cmd) {
+    case 'f': cuentaRegresiva(); iniciarAvance(valor * 10.0f); break;   // valor en CENTIMETROS
+    case 'g': cuentaRegresiva(); iniciarGiro(valor); break;
+    case 's': detenerTodo(); rutinaActiva = false; break;   // Autor: Carlos Parrilla -- 's' cancela la rutina
+    case 'l': soltarTodos(); estado = LIBRE;
+              Serial.println(F("Ruedas LIBRES (s para frenar)")); break;
+    case 'e': imprimirCuentas(); break;
+    case 'x': encodersEnCero();
+              Serial.println(F("Encoders en 0")); break;
+    case 'p': if (quieto) pruebaSignos(); break;
+    case 'v': if (quieto) pruebaVelocidad((int)valor); break;
+    case 'z': comandoServos(linea, quieto); break;   // Autor: Carlos Parrilla
+    case 'r': if (quieto && !rutinaActiva) iniciarRutina(); break;   // Autor: Carlos Parrilla
+    case 'c': comandoColor(linea, quieto); break;
+    case 'u': comandoUltrasonicos(linea); break;
+    default:  Serial.println(F("Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos"));
+  }
+}
+
+void leerSerial() {
+  static char linea[24];
+  static uint8_t largo = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (largo > 0) { linea[largo] = '\0'; procesarComando(linea); largo = 0; }
+    } else if (largo < sizeof(linea) - 1) {
+      linea[largo++] = c;
+    }
+  }
+}
+
+void imprimirDebug() {
+  static uint32_t tUltimo = 0;
+  if (estado == DETENIDO) return;          // no llenar el monitor si está quieto
+  if (millis() - tUltimo < 250) return;
+  tUltimo = millis();
+  if (estado == LIBRE) { imprimirCuentas(); return; }
+  const char* nombre = (estado == AVANZANDO) ? "AVANZANDO" : "GIRANDO";
+  Serial.print(F("estado=")); Serial.print(nombre);
+  Serial.print(F("  cm="));   Serial.print(recorridoMM() / 10.0f, 1);
+  Serial.print(F("  vObj="));  Serial.print(velObjetivo[M_DI], 0);
+  Serial.print(F("  yaw="));  Serial.print(yaw, 1);
+  Serial.print(F("  vDI="));  Serial.print(velMedida[M_DI], 0);
+  Serial.print(F("  vTI="));  Serial.print(velMedida[M_TI], 0);
+  Serial.print(F("  vDD="));  Serial.print(velMedida[M_DD], 0);
+  Serial.print(F("  vTD="));  Serial.print(velMedida[M_TD], 0);
+  Serial.println();
+}
+
+void setup() {
+  Serial.begin(115200);
+  movimientoIniciar();
+  colorCalCargar();
+  colorIniciarTodos();
+  ultrasonicosIniciar();
+
+  Serial.println(F("Listo. Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos"));   // Autor: Carlos Parrilla (z servos, r rutina)
+  controlReiniciarReloj();
+}
+
+void loop() {
+  controlActualizar();
+  if (movExcedido) {   // el tiempo maximo tambien cancela la rutina
+    movExcedido = false;
+    rutinaActiva = false;
+  }
+
+  leerSerial();
+  actualizarRutina();   // Autor: Carlos Parrilla
+  imprimirDebug();
+  imprimirColorContinuo();
+  imprimirUltrasonicoContinuo();
+}
