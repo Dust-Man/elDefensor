@@ -33,6 +33,7 @@ bool visited[N][N];
 // Celdas que el floodFill no puede atravesar (la meta roja mientras se explora)
 bool bloqueada[N][N];
 int8_t colorVisto[N][N];      // SIN_LEER, COLOR_NINGUNO o el color
+bool colorEncontrado[NUM_COLORES];
 int8_t dist[N][N];
 int8_t minX, maxX, minY, maxY;   // ventana de lo visitado
 
@@ -153,6 +154,7 @@ void registrarColor(int8_t x, int8_t y, int8_t c) {
   if (c == SIN_LEER || colorVisto[x][y] >= 0) return;   // ya tiene color: no se cambia
   colorVisto[x][y] = c;
   if (c < 0) return;
+  colorEncontrado[c] = true;
 
   Serial.print(F("Color ")); Serial.print(NOMBRE_COLOR[c]);
   Serial.print(F(" en (")); Serial.print(x - INICIO); Serial.print(',');
@@ -167,6 +169,13 @@ void registrarColor(int8_t x, int8_t y, int8_t c) {
     bloqueada[x][y] = true;
     Serial.println(F("Meta encontrada, se guarda y se sigue explorando"));
   }
+}
+
+// Incluye la meta roja: si es true ya se conoce la salida
+bool todosLosColores() {
+  for (int8_t c = 0; c < NUM_COLORES; c++)
+    if (!colorEncontrado[c]) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +196,7 @@ void alinearConFrente(float cm) {
 }
 
 void readWalls() {
+  asentar(P.asentarMs);
   float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
   float izq = ultrasonicoMedianaCm(US_IZQ, US_MUESTRAS);
   float der = ultrasonicoMedianaCm(US_DER, US_MUESTRAS);
@@ -199,6 +209,7 @@ void readWalls() {
 // Tras girar: la pared que ahora queda enfrente pudo no haberse leido
 // (la de atras del inicio nunca se lee)
 bool paredEnfrente() {
+  asentar(P.asentarMs);
   float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
   if (!hayPared(frente)) return false;
   addWall(px, py, heading);
@@ -276,6 +287,7 @@ void avanzar() {
   esperarMovimiento();
   px += dx[heading];
   py += dy[heading];
+  asentar(P.asentarMs);
   alinearConFrente(ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS));
 }
 
@@ -324,6 +336,10 @@ void explorar() {
 
     if (salidaConocida && millis() - tInicioRonda > PISTA_A_LIMITE_EXPLORAR_MS) {
       Serial.println(F("Tiempo de explorar agotado, voy a la meta"));
+      return;
+    }
+    if (PISTA_A_TERMINAR_CON_COLORES && todosLosColores()) {
+      Serial.println(F("Todos los colores encontrados, voy a la meta"));
       return;
     }
     uint8_t n = unvisited(goals);

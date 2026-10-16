@@ -11,9 +11,20 @@ constexpr float US_NO_ASIGNADO = -2.0f;    // pines aun en US_SIN_PIN
 
 bool ultrasonicoAsignado(uint8_t i);
 void ultrasonicosIniciar();
-// Distancia en cm, o US_SIN_ECO / US_NO_ASIGNADO
-float ultrasonicoLeerCm(uint8_t i);
+// Distancia en cm, o US_SIN_ECO / US_NO_ASIGNADO. Mas lejos que maxCm = sin eco
+// (un maxCm chico acorta el bloqueo: ~maxCm*58 us + 1 ms)
+float ultrasonicoLeerCm(uint8_t i, float maxCm = US_DIST_MAX_CM);
 // Mediana de n lecturas (n <= 5) del sensor i. Bloquea ~n*(12+US_PAUSA_MS) ms
 float ultrasonicoMedianaCm(uint8_t i, uint8_t n);
 void ultrasonicosImprimir(const float d[NUM_ULTRASONICOS]);
 void ultrasonicosLeerTodos();
+
+// Laterales mientras avanza (centrado). Llamar Actualizar una vez por ciclo de
+// control: dispara un solo sensor, alternando izq/der (bloquea <= ~2 ms).
+void ultrasonicosLateralReiniciar();   // al iniciar cada avance
+void ultrasonicosLateralActualizar();
+// Ultimas distancias aceptadas, o US_SIN_ECO si ese lado no tiene pared confiable
+void ultrasonicosLateral(float& izq, float& der);
+// Error lateral en cm, + = hay que irse a la IZQUIERDA. ambas = hay pared a los
+// dos lados. false si ningun lado tiene pared confiable.
+bool ultrasonicosErrorLateral(float& eCm, bool& ambas);

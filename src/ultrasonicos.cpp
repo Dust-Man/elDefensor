@@ -4,7 +4,6 @@
 // Se disparan de uno en uno para que el eco de uno no lo escuche otro.
 // pulseIn bloquea como maximo ~US_DIST_MAX_CM*58 us por sensor (~12 ms con 200 cm).
 const char* const NOMBRE_US[NUM_ULTRASONICOS] = { "frente", "izq", "der" };
-const unsigned long US_TIMEOUT_US = (unsigned long)(US_DIST_MAX_CM * 58.0f) + 1000;   // +1 ms: el HC-SR04 tarda en empezar el eco
 
 bool ultrasonicoAsignado(uint8_t i) {
   return PIN_US_TRIG[i] != US_SIN_PIN && PIN_US_ECHO[i] != US_SIN_PIN;
@@ -19,14 +18,15 @@ void ultrasonicosIniciar() {
   }
 }
 
-float ultrasonicoLeerCm(uint8_t i) {
+float ultrasonicoLeerCm(uint8_t i, float maxCm) {
   if (!ultrasonicoAsignado(i)) return US_NO_ASIGNADO;
+  unsigned long timeout = (unsigned long)(maxCm * 58.0f) + 1000;   // +1 ms: el HC-SR04 tarda en empezar el eco
   digitalWrite(PIN_US_TRIG[i], LOW);
   delayMicroseconds(2);
   digitalWrite(PIN_US_TRIG[i], HIGH);   // pulso de disparo de 10 us
   delayMicroseconds(10);
   digitalWrite(PIN_US_TRIG[i], LOW);
-  unsigned long t = pulseIn(PIN_US_ECHO[i], HIGH, US_TIMEOUT_US);
+  unsigned long t = pulseIn(PIN_US_ECHO[i], HIGH, timeout);
   if (t == 0) return US_SIN_ECO;
   return t / 58.0f;   // ida y vuelta a ~343 m/s
 }
@@ -69,4 +69,57 @@ void ultrasonicosLeerTodos() {
     if (ultrasonicoAsignado(i)) delay(US_PAUSA_MS);
   }
   ultrasonicosImprimir(d);
+}
+
+// ---------------- Laterales mientras avanza ----------------
+// Un sensor por llamada alternando izq/der: con el lazo de 20 ms cada lado se lee
+// a ~25 Hz y el eco de uno no lo escucha el otro. Timeout corto (US_LATERAL_MAX_CM)
+// para no frenar el lazo. Sin eco aqui NO significa "no hay pared", solo que la
+// lectura no sirve para centrar (el mapeo sigue siendo con el robot parado).
+struct Lateral {
+  float cm;        // ultima lectura aceptada
+  float previa;    // ultima lectura en rango (para detectar saltos), o US_SIN_ECO
+  bool ok;         // la ultima lectura fue aceptada
+  uint32_t t;      // millis de la ultima lectura aceptada
+};
+Lateral lateral[2];   // 0 = izq, 1 = der
+uint8_t lateralSiguiente = 0;
+
+void ultrasonicosLateralReiniciar() {
+  for (uint8_t k = 0; k < 2; k++) {
+    lateral[k].previa = US_SIN_ECO;
+    lateral[k].ok = false;
+  }
+}
+
+void ultrasonicosLateralActualizar() {
+  uint8_t k = lateralSiguiente;
+  lateralSiguiente = 1 - k;
+  Lateral& L = lateral[k];
+  float d = ultrasonicoLeerCm(k == 0 ? US_IZQ : US_DER, US_LATERAL_MAX_CM);
+  bool enRango = d > US_LATERAL_MIN_CM && d < US_LATERAL_MAX_CM;
+  // Se acepta con dos lecturas seguidas parecidas: un filo o un hueco da un salto
+  bool estable = enRango && L.previa > 0 && fabs(d - L.previa) <= US_LATERAL_SALTO_CM;
+  L.previa = enRango ? d : US_SIN_ECO;
+  L.ok = estable;
+  if (estable) { L.cm = d; L.t = millis(); }
+}
+
+static bool lateralVigente(uint8_t k) {
+  return lateral[k].ok && millis() - lateral[k].t < US_LATERAL_VIGENCIA_MS;
+}
+
+void ultrasonicosLateral(float& izq, float& der) {
+  izq = lateralVigente(0) ? lateral[0].cm : US_SIN_ECO;
+  der = lateralVigente(1) ? lateral[1].cm : US_SIN_ECO;
+}
+
+bool ultrasonicosErrorLateral(float& eCm, bool& ambas) {
+  bool izq = lateralVigente(0);
+  bool der = lateralVigente(1);
+  ambas = izq && der;
+  if (ambas)    eCm = (lateral[0].cm - lateral[1].cm) / 2 - (US_LATERAL_OBJ_IZQ_CM - US_LATERAL_OBJ_DER_CM) / 2;
+  else if (izq) eCm = lateral[0].cm - US_LATERAL_OBJ_IZQ_CM;
+  else if (der) eCm = US_LATERAL_OBJ_DER_CM - lateral[1].cm;
+  return izq || der;
 }

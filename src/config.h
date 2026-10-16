@@ -22,7 +22,7 @@ constexpr float TICKS_POR_VUELTA  = 985.0f;   // CALBIRADO
 
 // Ajuste fino: pedir f100 (1 m), medir con cinta lo que avanzó en realidad y
 // poner FACTOR_DISTANCIA = real_cm / 100. Ej: avanzó 96 cm -> 0.96
-constexpr float FACTOR_DISTANCIA  = 1.02f;
+constexpr float FACTOR_DISTANCIA  = .97f;
 constexpr float MM_POR_TICK = PI * DIAMETRO_RUEDA_MM / TICKS_POR_VUELTA * FACTOR_DISTANCIA;
 
 // Seguridad: ningún movimiento puede durar más que esto
@@ -42,7 +42,11 @@ constexpr uint8_t SERVO_MS_POR_GRADO = 15;   // velocidad del barrido 'zb'
 // MPU6050 - giroscopio
 constexpr uint8_t MPU_DIRECCION = 0x68;
 constexpr float GIRO_LSB_POR_GPS = 65.5f;   // sensibilidad para el rango +-500 grados/s
-constexpr float YAW_SIGNO = 1.0f;           // cambiar a -1.0f si el yaw crece al reves
+constexpr float YAW_SIGNO = 1.022f;           // cambiar a -1.0f si el yaw crece al reves
+// El MPU6050 trae hasta +-3% de error de sensibilidad: cada giro de 90 deja ~2 grados
+// de error. CALIBRAR: con 'l' (ruedas libres) girar el robot a mano 4 vueltas exactas
+// contra una referencia en el piso y poner GIRO_ESCALA = 1440 / yaw leido.
+constexpr float GIRO_ESCALA = 1.0f;
 
 // Multiplexor I2C TCA9548A (SDA 20, SCL 21). A0-A2 a GND = 0x70
 constexpr uint8_t TCA_DIRECCION = 0x70;
@@ -72,6 +76,15 @@ constexpr float US_DIST_MAX_CM = 200.0f;     // mas lejos que esto cuenta como "
 constexpr uint16_t US_PERIODO_MS = 150;      // cada cuanto imprime el modo continuo 'uu'
 constexpr uint16_t US_PAUSA_MS = 30;         // entre disparos, para que no se crucen los ecos
 
+// Centrado con las paredes laterales mientras avanza (lo aplica movimiento.cpp)
+// CALIBRAR con 'um': robot centrado en una celda con pared a los dos lados.
+constexpr float US_LATERAL_OBJ_IZQ_CM = 5.5f;    // lectura izq con el robot centrado
+constexpr float US_LATERAL_OBJ_DER_CM = 5.5f;    // lectura der con el robot centrado
+constexpr float US_LATERAL_MIN_CM = 2.0f;        // por debajo el HC-SR04 no es confiable
+constexpr float US_LATERAL_MAX_CM = 14.0f;       // mas lejos no es pared pegada (~objetivo + 6)
+constexpr float US_LATERAL_SALTO_CM = 2.0f;      // salto mayor entre lecturas = filo o hueco: se ignora
+constexpr uint16_t US_LATERAL_VIGENCIA_MS = 100; // lectura mas vieja que esto ya no cuenta
+
 // Pin sin conectar (boton): el codigo lo ignora
 constexpr uint8_t SIN_PIN = 255;
 
@@ -88,12 +101,12 @@ constexpr float GIRO_DERECHA_GRADOS = -90.0f;
 
 // Paredes: hay pared si el ultrasonico lee menos que esto. MEDIR con 'um' con el
 // robot centrado en una celda: pared pegada vs. la pared de la celda siguiente (~30 cm mas).
-constexpr float US_PARED_CM = 30.0f;
+constexpr float US_PARED_CM = 20.0f;
 constexpr uint8_t US_MUESTRAS = 3;           // mediana de cuantas lecturas por sensor
 
 // Centrado con la pared de enfrente al llegar a una celda (corrige el error de encoders)
 constexpr bool ALINEAR_CON_PARED = true;
-constexpr float US_FRENTE_OBJETIVO_CM = 7.0f;   // MEDIR: lectura de frente con el robot centrado
+constexpr float US_FRENTE_OBJETIVO_CM = 5.5f;   // MEDIR: lectura de frente con el robot centrado
 constexpr float ALINEAR_MAX_CM = 6.0f;          // errores mayores se ignoran (lectura dudosa)
 
 // Color del piso. El sensor va adelante del centro: lee la celda siguiente
@@ -109,6 +122,9 @@ constexpr bool RETORNO_EXACTO = true;
 // Despues de esto se deja de explorar y se va a la meta (si ya se conoce).
 // La ronda dura 6 min y el regreso exacto tarda casi lo mismo que la ida.
 constexpr uint32_t PISTA_A_LIMITE_EXPLORAR_MS = 180000;
+// true = deja de explorar y va a la meta en cuanto ya vio todos los colores
+// (incluida la meta roja). false = explora todo el laberinto.
+constexpr bool PISTA_A_TERMINAR_CON_COLORES = true;
 constexpr uint32_t PISTA_A_PAUSA_META_MS = 2000;   // quieto en la meta para que el juez la cuente
 
 // Ganancias PID (se aplican en aplicarParametros(), solo desde setup())
@@ -135,14 +151,29 @@ struct Parametros {
 
   // Mantener rumbo recto
   //Esto es por lado
-  float rumboKp = 2.0f;
+  float rumboKp = 5.0f;      // con rumboKd probar subirlo a 4-6
   float rumboKi = 0.0f;
-  float rumboKd = 0.0f;
+  float rumboKd = 0.4f;      // mm/s por grado/s: amortigua con la velocidad angular del
+                             // giroscopio (no con la derivada del error). Probar 0.3-0.5
   float rumboMax = 60.0f;    // limite de la correccion diferencial entre lados
+
+  // Centrado con paredes laterales: el error lateral inclina el rumbo deseado y
+  // el lazo de rumbo (giroscopio) lo sigue. Sin paredes queda solo el giroscopio.
+  bool centrarParedes = true;
+  float centradoKp = 2.0f;        // grados de rumbo por cm de error lateral
+  float centradoMax = 8.0f;       // grados, inclinacion maxima del rumbo
+  float centradoTasa = 30.0f;     // grados/s, que tan rapido cambia la inclinacion
+  float centradoKi = 0.5f;        // grados/(cm*s): re-alinea yawObjetivo con las paredes
+  float realineoMax = 3.0f;       // grados maximo de re-alineo por avance
+  float centradoDistMin = 100.0f; // mm: avances mas cortos (ajustes) no centran
+
+  // Quieto y frenado antes de leer paredes: el yaw registra lo que giro al
+  // frenar y se re-estima el sesgo del giroscopio
+  float asentarMs = 200.0f;
 
   // Girar donde este
   float giroKp = 2.0f;
-  float giroKd = 0.0f;
+  float giroKd = 0.0f;       // mm/s por grado/s, igual que rumboKd
   float giroMax = 150.0f;
   float giroMin = 40.0f;     // Vencer la friccion
   float giroTol = 2.0f;      // Grados para dar el giro terminado

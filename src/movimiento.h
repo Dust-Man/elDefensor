@@ -12,8 +12,14 @@ extern Parametros P;
 extern Estado estado;
 
 extern float yaw;            // grados, continuo
-extern float yawObjetivo;    // rumbo nominal (lo mueven los giros)
+extern float velYaw;         // grados/s
+extern float yawObjetivo;    // rumbo nominal (lo mueven los giros y el re-alineo con paredes)
 extern bool imuOk;
+
+// Centrado con paredes laterales (solo mientras AVANZANDO)
+extern float corrLateral;    // grados que se inclina el rumbo deseado: yawRef = yawObjetivo + corrLateral
+extern float errorLateral;   // cm, + = hay que irse a la izquierda
+extern bool hayLateral;      // el ultimo ciclo hubo pared confiable de algun lado
 extern float velMedida[NUM_MOTORES];     // mm/s
 extern float velObjetivo[NUM_MOTORES];   // mm/s
 
@@ -29,6 +35,8 @@ void soltarTodos();
 
 // Motores, encoders, PID y MPU (calibra el giroscopio: robot QUIETO)
 void movimientoIniciar();
+// Pasa las ganancias de P a los PID (tras cambiarlas en vivo)
+void aplicarParametros();
 
 float recorridoMM();
 void iniciarAvance(float mm);
@@ -42,3 +50,6 @@ bool controlActualizar();
 void controlReiniciarReloj();
 // Bloquea corriendo el control hasta que termine el avance o giro actual
 void esperarMovimiento();
+// Corre el control ms milisegundos con el robot frenado: termina de detenerse,
+// el yaw registra lo que giro al frenar y se re-estima el sesgo del giroscopio
+void asentar(uint16_t ms);

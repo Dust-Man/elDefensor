@@ -137,6 +137,34 @@ void comandoUltrasonicos(char* linea) {
   }
 }
 
+// ---------------- Ajuste en vivo 't' ----------------
+// t = lista, t <nombre> = ver uno, t <nombre> <valor> = asignar (p.ej. "t rkp 5").
+// Se pierde al reiniciar: pasar a config.h los valores que funcionen.
+struct Ajuste { const char* nombre; float* valor; };
+const Ajuste AJUSTES[] = {
+  { "rkp", &P.rumboKp }, { "rki", &P.rumboKi }, { "rkd", &P.rumboKd }, { "rmax", &P.rumboMax },
+  { "gkp", &P.giroKp }, { "gkd", &P.giroKd },
+  { "ckp", &P.centradoKp }, { "cki", &P.centradoKi }, { "cmax", &P.centradoMax }, { "ctasa", &P.centradoTasa },
+  { "vmax", &P.vMax }, { "asen", &P.asentarMs },
+};
+
+void comandoAjuste(char* linea) {
+  char* nombre = linea + 1;
+  while (*nombre == ' ') nombre++;
+  char* valor = nombre;
+  while (*valor && *valor != ' ') valor++;
+  if (*valor) *valor++ = '\0';
+  while (*valor == ' ') valor++;
+
+  for (const Ajuste& a : AJUSTES) {
+    if (*nombre && strcmp(nombre, a.nombre) != 0) continue;
+    if (*valor) { *a.valor = atof(valor); aplicarParametros(); }
+    Serial.print(a.nombre); Serial.print('='); Serial.println(*a.valor, 3);
+    if (*nombre) return;
+  }
+  if (*nombre) { Serial.print(F("No existe: ")); Serial.println(nombre); }
+}
+
 // Continuo: un sensor por llamada (no bloquea el lazo con los tres juntos) e imprime
 // cuando completa la vuelta. Cada sensor se dispara cada US_PERIODO_MS.
 void imprimirUltrasonicoContinuo() {
@@ -258,7 +286,10 @@ void procesarComando(char* linea) {
     case 'r': if (quieto && !rutinaActiva) iniciarRutina(); break;   // Autor: Carlos Parrilla
     case 'c': comandoColor(linea, quieto); break;
     case 'u': comandoUltrasonicos(linea); break;
-    default:  Serial.println(F("Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos"));
+    case 'w': P.centrarParedes = !P.centrarParedes;
+              Serial.println(P.centrarParedes ? F("Centrado con paredes ON") : F("Centrado con paredes OFF")); break;
+    case 't': comandoAjuste(linea); break;
+    default:  Serial.println(F("Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos, w centrado, t ajustes"));
   }
 }
 
@@ -280,12 +311,26 @@ void imprimirDebug() {
   if (estado == DETENIDO) return;          // no llenar el monitor si está quieto
   if (millis() - tUltimo < 250) return;
   tUltimo = millis();
-  if (estado == LIBRE) { imprimirCuentas(); return; }
+  if (estado == LIBRE) {   // yaw para calibrar GIRO_ESCALA girando a mano
+    Serial.print(F("yaw=")); Serial.print(yaw, 1); Serial.print(F("  "));
+    imprimirCuentas();
+    return;
+  }
   const char* nombre = (estado == AVANZANDO) ? "AVANZANDO" : "GIRANDO";
   Serial.print(F("estado=")); Serial.print(nombre);
   Serial.print(F("  cm="));   Serial.print(recorridoMM() / 10.0f, 1);
   Serial.print(F("  vObj="));  Serial.print(velObjetivo[M_DI], 0);
   Serial.print(F("  yaw="));  Serial.print(yaw, 1);
+  Serial.print(F("  ref="));  Serial.print(yawObjetivo + corrLateral, 1);
+  Serial.print(F("  w="));    Serial.print(velYaw, 0);
+  if (estado == AVANZANDO) {
+    float dIzq, dDer;
+    ultrasonicosLateral(dIzq, dDer);
+    Serial.print(F("  dI=")); if (dIzq > 0) Serial.print(dIzq, 1); else Serial.print('-');
+    Serial.print(F("  dD=")); if (dDer > 0) Serial.print(dDer, 1); else Serial.print('-');
+    Serial.print(F("  e="));  if (hayLateral) Serial.print(errorLateral, 1); else Serial.print('-');
+    Serial.print(F("  corr=")); Serial.print(corrLateral, 1);
+  }
   Serial.print(F("  vDI="));  Serial.print(velMedida[M_DI], 0);
   Serial.print(F("  vTI="));  Serial.print(velMedida[M_TI], 0);
   Serial.print(F("  vDD="));  Serial.print(velMedida[M_DD], 0);
@@ -300,7 +345,7 @@ void setup() {
   colorIniciarTodos();
   ultrasonicosIniciar();
 
-  Serial.println(F("Listo. Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos"));   // Autor: Carlos Parrilla (z servos, r rutina)
+  Serial.println(F("Listo. Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos, w centrado, t ajustes"));   // Autor: Carlos Parrilla (z servos, r rutina)
   controlReiniciarReloj();
 }
 
