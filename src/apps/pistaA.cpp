@@ -212,6 +212,24 @@ void alinearConFrente(float cm) {
   esperarMovimiento();
 }
 
+float leerAtras() {
+  asentar(P.asentarMs);
+  return ultrasonicoMedianaCm(US_ATRAS, US_MUESTRAS);
+}
+
+// Con pared atras (lectura cm), se acerca o aleja de ella hasta quedar centrado.
+// Se usa tras un giro de 180 (el robot no gira justo sobre su centro y queda
+// corrido; la pared que tenia enfrente ahora le queda atras) y en el inicio.
+void alinearConAtras(float cm) {
+  if (!ALINEAR_CON_ATRAS || !hayPared(cm)) return;
+  float error = cm - US_ATRAS_OBJETIVO_CM;
+  if (fabs(error) < 1.0f || fabs(error) > ALINEAR_ATRAS_MAX_CM) return;
+  Serial.print(F("Atras a ")); Serial.print(cm, 1);
+  Serial.print(F(" cm, me acomodo ")); Serial.print(-error, 1); Serial.println(F(" cm"));
+  iniciarAvance(-error * 10.0f);   // lejos de la pared de atras = hacia atras
+  esperarMovimiento();
+}
+
 void readWalls() {
   asentar(P.asentarMs);
   float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
@@ -224,7 +242,7 @@ void readWalls() {
 }
 
 // Tras girar: la pared que ahora queda enfrente pudo no haberse leido
-// (la de atras del inicio nunca se lee)
+// (la de atras del inicio, si el sensor trasero no la vio)
 bool paredEnfrente() {
   asentar(P.asentarMs);
   float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
@@ -244,6 +262,7 @@ bool orientateTo(int8_t dir) {
   iniciarGiro(grados);
   esperarMovimiento();
   heading = dir;
+  if (diff == 2) alinearConAtras(leerAtras());
   return true;
 }
 
@@ -296,6 +315,18 @@ Avance avanzarCelda(bool evitarMeta, int8_t& colorLeido) {
     Serial.println(F("!! Atorado despues de la mitad: se toma como celda alcanzada"));
   }
   return LLEGO;
+}
+
+// Casilla de inicio: es la unica celda cuya pared de atras no se leia (a las
+// demas se llega por atras). Si esta, va al mapa y el robot se centra con ella;
+// con la de enfrente lo hace el primer readWalls().
+void alinearInicio() {
+  float atras = leerAtras();
+  if (hayPared(atras)) {
+    addWall(px, py, (heading + 2) % 4);
+    Serial.println(F("Pared atras del inicio"));
+  }
+  alinearConAtras(atras);
 }
 
 // Avanzar sin leer piso ni registrar (regreso al inicio)
@@ -450,6 +481,7 @@ void correrPistaA() {
   registrarColor(INICIO, INICIO, COLOR_VERDE);
 
   tInicioRonda = millis();
+  alinearInicio();
   explorar();
 
   if (!salidaConocida) {

@@ -68,22 +68,22 @@ constexpr float COLOR_BRILLO_MIN = 0.08f;    // por debajo de esto no hay nada q
 constexpr float COLOR_BLANCO_MIN = 0.7f;     // los 3 canales corregidos arriba de esto = blanco (cinta, franjas)
 constexpr int COLOR_EEPROM_DIR = 0;          // donde se guarda la calibracion
 
-// Ultrasonicos HC-SR04 -> FRENTE, IZQ, DER
+// Ultrasonicos HC-SR04 -> FRENTE, IZQ, DER, ATRAS
 // PINES POR DEFINIR: un sensor con US_SIN_PIN se ignora (no se toca ningun pin).
-constexpr uint8_t NUM_ULTRASONICOS = 3;
+constexpr uint8_t NUM_ULTRASONICOS = 4;
 constexpr uint8_t US_SIN_PIN = 255;
 //const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 39, 37,  41 };
 //const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 38, 36,  40 };
-const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 39,  41, 37 };
-const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 38,  40, 36 };
+const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 39,  41, 37, 12 };
+const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 38,  40, 36, 13 };
 constexpr float US_DIST_MAX_CM = 200.0f;     // mas lejos que esto cuenta como "sin eco" (acota el bloqueo)
 constexpr uint16_t US_PERIODO_MS = 150;      // cada cuanto imprime el modo continuo 'uu'
 constexpr uint16_t US_PAUSA_MS = 30;         // entre disparos, para que no se crucen los ecos
 
 // Centrado con las paredes laterales mientras avanza (lo aplica movimiento.cpp)
 // CALIBRAR con 'um': robot centrado en una celda con pared a los dos lados.
-constexpr float US_LATERAL_OBJ_IZQ_CM = 5.5f;    // lectura izq con el robot centrado
-constexpr float US_LATERAL_OBJ_DER_CM = 5.5f;    // lectura der con el robot centrado
+constexpr float US_LATERAL_OBJ_IZQ_CM = 6.3f;    // lectura izq con el robot centrado
+constexpr float US_LATERAL_OBJ_DER_CM = 5.8f;    // lectura der con el robot centrado
 constexpr float US_LATERAL_MIN_CM = 2.0f;        // por debajo el HC-SR04 no es confiable
 constexpr float US_LATERAL_MAX_CM = 14.0f;       // mas lejos no es pared pegada (~objetivo + 6)
 constexpr float US_LATERAL_SALTO_CM = 2.0f;      // salto mayor entre lecturas = filo o hueco: se ignora
@@ -122,6 +122,11 @@ constexpr uint8_t US_MUESTRAS = 3;           // mediana de cuantas lecturas por 
 constexpr bool ALINEAR_CON_PARED = true;
 constexpr float US_FRENTE_OBJETIVO_CM = 5.5f;   // MEDIR: lectura de frente con el robot centrado
 constexpr float ALINEAR_MAX_CM = 6.0f;          // errores mayores se ignoran (lectura dudosa)
+// Tras un giro de 180 el robot queda corrido (no gira justo sobre su centro):
+// se acomoda con la pared que ahora le queda atras (la que tenia enfrente).
+constexpr bool ALINEAR_CON_ATRAS = true;
+constexpr float US_ATRAS_OBJETIVO_CM = 5.5f;    // MEDIR con 'um': lectura de atras con el robot centrado
+constexpr float ALINEAR_ATRAS_MAX_CM = 10.0f;   // el corrimiento del giro puede ser mayor que ALINEAR_MAX_CM
 
 // Color del piso. El sensor va adelante del centro: lee la celda siguiente
 // mientras avanza, asi detecta la meta roja antes de pisarla y regresa.
