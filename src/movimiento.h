@@ -43,6 +43,11 @@ void iniciarAvance(float mm);
 void iniciarGiro(float grados);   // relativo al rumbo nominal; + = izquierda
 void detenerTodo();
 
+// Trabajo corto que debe seguir corriendo mientras el robot espera un movimiento
+// (leer el Serial, refrescar el LCD). controlActualizar() la llama en cada vuelta.
+// Por defecto vacia; un main de src/apps/ la define si la necesita.
+void tareaFondo();
+
 // Corre un ciclo de control si ya pasaron CONTROL_PERIODO_MS. Llamar seguido.
 // Devuelve true si corrio el ciclo.
 bool controlActualizar();

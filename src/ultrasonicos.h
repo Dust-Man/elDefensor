@@ -3,7 +3,7 @@
 #include "config.h"
 
 // Ultrasonicos HC-SR04, indices de PIN_US_TRIG / PIN_US_ECHO
-enum { US_FRENTE = 0, US_IZQ = 1, US_DER = 2 };
+enum { US_FRENTE = 0, US_IZQ = 1, US_DER = 2, US_ATRAS = 3 };
 extern const char* const NOMBRE_US[NUM_ULTRASONICOS];
 
 constexpr float US_SIN_ECO = -1.0f;        // nada dentro de US_DIST_MAX_CM (o sensor desconectado)

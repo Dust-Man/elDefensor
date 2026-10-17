@@ -48,6 +48,9 @@ constexpr float YAW_SIGNO = 1.022f;           // cambiar a -1.0f si el yaw crece
 // contra una referencia en el piso y poner GIRO_ESCALA = 1440 / yaw leido.
 constexpr float GIRO_ESCALA = 1.0f;
 
+// Bus I2C (SDA 20, SCL 21): MPU, multiplexor y LCD
+constexpr uint32_t I2C_RELOJ_HZ = 400000;
+
 // Multiplexor I2C TCA9548A (SDA 20, SCL 21). A0-A2 a GND = 0x70
 constexpr uint8_t TCA_DIRECCION = 0x70;
 
@@ -65,26 +68,36 @@ constexpr float COLOR_BRILLO_MIN = 0.08f;    // por debajo de esto no hay nada q
 constexpr float COLOR_BLANCO_MIN = 0.7f;     // los 3 canales corregidos arriba de esto = blanco (cinta, franjas)
 constexpr int COLOR_EEPROM_DIR = 0;          // donde se guarda la calibracion
 
-// Ultrasonicos HC-SR04 -> FRENTE, IZQ, DER
+// Ultrasonicos HC-SR04 -> FRENTE, IZQ, DER, ATRAS
 // PINES POR DEFINIR: un sensor con US_SIN_PIN se ignora (no se toca ningun pin).
-constexpr uint8_t NUM_ULTRASONICOS = 3;
+constexpr uint8_t NUM_ULTRASONICOS = 4;
 constexpr uint8_t US_SIN_PIN = 255;
 //const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 39, 37,  41 };
 //const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 38, 36,  40 };
-const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 39,  41, 37 };
-const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 38,  40, 36 };
+const uint8_t PIN_US_TRIG[NUM_ULTRASONICOS] = { 39,  41, 37, 12 };
+const uint8_t PIN_US_ECHO[NUM_ULTRASONICOS] = { 38,  40, 36, 13 };
 constexpr float US_DIST_MAX_CM = 200.0f;     // mas lejos que esto cuenta como "sin eco" (acota el bloqueo)
 constexpr uint16_t US_PERIODO_MS = 150;      // cada cuanto imprime el modo continuo 'uu'
 constexpr uint16_t US_PAUSA_MS = 30;         // entre disparos, para que no se crucen los ecos
 
 // Centrado con las paredes laterales mientras avanza (lo aplica movimiento.cpp)
 // CALIBRAR con 'um': robot centrado en una celda con pared a los dos lados.
-constexpr float US_LATERAL_OBJ_IZQ_CM = 5.5f;    // lectura izq con el robot centrado
-constexpr float US_LATERAL_OBJ_DER_CM = 5.5f;    // lectura der con el robot centrado
+constexpr float US_LATERAL_OBJ_IZQ_CM = 6.3f;    // lectura izq con el robot centrado
+constexpr float US_LATERAL_OBJ_DER_CM = 5.8f;    // lectura der con el robot centrado
 constexpr float US_LATERAL_MIN_CM = 2.0f;        // por debajo el HC-SR04 no es confiable
 constexpr float US_LATERAL_MAX_CM = 14.0f;       // mas lejos no es pared pegada (~objetivo + 6)
 constexpr float US_LATERAL_SALTO_CM = 2.0f;      // salto mayor entre lecturas = filo o hueco: se ignora
 constexpr uint16_t US_LATERAL_VIGENCIA_MS = 100; // lectura mas vieja que esto ya no cuenta
+
+// LCD 16x2 con backpack PCF8574, en el bus principal (NO en un canal del
+// multiplexor). Si no se ve texto: potenciometro de contraste, o probar 0x3F.
+constexpr uint8_t LCD_DIRECCION = 0x27;
+constexpr uint32_t LCD_RELOJ_HZ = 100000;    // el PCF8574 solo garantiza 100 kHz
+constexpr uint16_t LCD_PAUSA_MS = 2;         // entre caracteres: ~1.2 ms cada uno, no frenar el lazo
+
+// Vision (celular con CVSquirtDeAga por el USB del Mega, Serial a 115200).
+// Recibe M,<bola>,<n>,<id1>,...,<idn> y lo muestra en el LCD.
+constexpr uint32_t VISION_TIMEOUT_MS = 10000;   // sin mensaje valido: "Sin enlace"
 
 // Pin sin conectar (boton): el codigo lo ignora
 constexpr uint8_t SIN_PIN = 255;
@@ -108,12 +121,18 @@ constexpr uint8_t US_MUESTRAS = 3;           // mediana de cuantas lecturas por 
 // Centrado con la pared de enfrente al llegar a una celda (corrige el error de encoders)
 constexpr bool ALINEAR_CON_PARED = true;
 constexpr float US_FRENTE_OBJETIVO_CM = 5.5f;   // MEDIR: lectura de frente con el robot centrado
-constexpr float ALINEAR_MAX_CM = 6.0f;          // errores mayores se ignoran (lectura dudosa)
+constexpr float ALINEAR_MAX_CM = 8.0f;          // errores mayores se ignoran (lectura dudosa)
+// Tras cada giro el robot queda corrido (no gira justo sobre su centro): se
+// centra con la pared de enfrente y/o la de atras (con las dos, promedia).
+// Tambien en la casilla de inicio.
+constexpr bool ALINEAR_CON_ATRAS = true;
+constexpr float US_ATRAS_OBJETIVO_CM = 6.48f;    // MEDIR con 'um': lectura de atras con el robot centrado
+constexpr float ALINEAR_ATRAS_MAX_CM = 10.0f;   // el corrimiento del giro puede ser mayor que ALINEAR_MAX_CM
 
 // Color del piso. El sensor va adelante del centro: lee la celda siguiente
 // mientras avanza, asi detecta la meta roja antes de pisarla y regresa.
 constexpr uint8_t SENSOR_COLOR_PISO = 0;     // cual TCS34725 mira al piso al frente
-constexpr float COLOR_OFFSET_MM = 100.0f; //80   // MEDIR: del centro del robot al sensor, hacia adelante
+constexpr float COLOR_OFFSET_MM = 80.0f; //80   // MEDIR: del centro del robot al sensor, hacia adelante
 constexpr float COLOR_MARGEN_MM = 10.0f;     // no leer cerca de la orilla entre celdas (franja blanca)
 constexpr uint8_t COLOR_LECTURAS_MIN = 2  ;    // lecturas seguidas iguales para aceptar un color
 

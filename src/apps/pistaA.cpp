@@ -1,6 +1,8 @@
 // Pista A: laberinto de 5x5 unidades. Compilar/subir con el entorno [env:pistaA].
 // Explora todo el laberinto mostrando los colores del piso, llega a la meta roja
 // y regresa al inicio por las mismas unidades (bonus 1).
+// LCD: fila 1 el ultimo color que da puntos, fila 2 los ArUco que ve el celular
+// y si ve la bola (CVSquirtDeAga, vision.h).
 // La logica es la de exploreColor.cpp (probada en mms); lo que cambia es el robot:
 // paredes con los ultrasonicos, color con el TCS34725 mientras avanza y
 // movimientos con el control de movimiento.cpp.
@@ -10,6 +12,8 @@
 #include "color.h"
 #include "ultrasonicos.h"
 #include "arranque.h"
+#include "pantalla.h"
+#include "vision.h"
 
 // La casilla de inicio cambia por ronda y no se puede pre-mapear: se usa una
 // cuadricula virtual de 9x9 con el inicio al centro, asi el laberinto real de 5x5
@@ -54,6 +58,13 @@ Celda ruta[N * N];
 uint8_t largoRuta = 0;
 
 uint32_t tInicioRonda = 0;
+
+// Vision: el celular manda los ArUco que ve y se muestran en el LCD. Corre en
+// cada vuelta del control, tambien mientras el robot espera un movimiento.
+void tareaFondo() {
+  visionActualizar();
+  pantallaActualizar();
+}
 
 // ---------------------------------------------------------------------------
 // Mapa
@@ -146,9 +157,14 @@ int8_t direccionHacia(const Celda& c) {
 // ---------------------------------------------------------------------------
 // Colores
 // ---------------------------------------------------------------------------
-// Unico lugar donde se le muestra el color al juez. TODO: pantalla.
+// Unico lugar donde se le muestra el color al juez: fila 1 del LCD (se queda
+// el ultimo) y la consola. La fila 2 es de los ArUco (vision).
 void mostrarColor(int8_t c) {
   Serial.print(F(">> COLOR ")); Serial.println(NOMBRE_COLOR[c]);
+  char fila[PANTALLA_COLUMNAS + 1];
+  snprintf(fila, sizeof(fila), "Color: %s", NOMBRE_COLOR[c]);
+  for (char* p = fila; *p; p++) *p = toupper(*p);
+  pantallaFila(0, fila);
 }
 
 void registrarColor(int8_t x, int8_t y, int8_t c) {
@@ -186,14 +202,42 @@ bool hayPared(float cm) {
   return cm > 0 && cm < US_PARED_CM;   // sin eco = no hay pared cerca
 }
 
-// Si hay pared enfrente, se acerca o aleja hasta quedar centrado en la celda:
-// asi el error de los encoders no se acumula de celda en celda.
-void alinearConFrente(float cm) {
-  if (!ALINEAR_CON_PARED || !hayPared(cm)) return;
-  float error = cm - US_FRENTE_OBJETIVO_CM;
-  if (fabs(error) < 1.0f || fabs(error) > ALINEAR_MAX_CM) return;
-  iniciarAvance(error * 10.0f);
+// Centrado sobre el eje del robot (adelante/atras) con la pared de enfrente y/o
+// la de atras, asi el error de los encoders y el corrimiento de los giros no se
+// acumulan de celda en celda. Lecturas en cm; sin pared (o lectura dudosa) ese
+// lado se ignora. Con las dos paredes promedia las dos estimaciones.
+void alinearEje(float frente, float atras) {
+  bool f = ALINEAR_CON_PARED && hayPared(frente) && fabs(frente - US_FRENTE_OBJETIVO_CM) <= ALINEAR_MAX_CM;
+  bool a = ALINEAR_CON_ATRAS && hayPared(atras) && fabs(atras - US_ATRAS_OBJETIVO_CM) <= ALINEAR_ATRAS_MAX_CM;
+  float adelante;   // cm que hay que avanzar para quedar centrado
+  if (f && a)  adelante = ((frente - US_FRENTE_OBJETIVO_CM) - (atras - US_ATRAS_OBJETIVO_CM)) / 2;
+  else if (f)  adelante = frente - US_FRENTE_OBJETIVO_CM;
+  else if (a)  adelante = US_ATRAS_OBJETIVO_CM - atras;
+  else return;
+  if (fabs(adelante) < 1.0f) return;
+  Serial.print(F("Centrado ")); Serial.print(f && a ? F("frente+atras") : (f ? F("frente") : F("atras")));
+  Serial.print(F(": ")); Serial.print(adelante, 1); Serial.println(F(" cm"));
+  iniciarAvance(adelante * 10.0f);
   esperarMovimiento();
+}
+
+void alinearConFrente(float cm) {
+  alinearEje(cm, US_SIN_ECO);
+}
+
+// Lee enfrente y atras y se centra con ellas. La de enfrente va al mapa; la de
+// atras solo si anotarAtras (normalmente atras es por donde llego: una lectura
+// falsa ahi cerraria el camino de regreso).
+void alinearFrenteAtras(bool anotarAtras) {
+  asentar(P.asentarMs);
+  float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
+  float atras = ultrasonicoMedianaCm(US_ATRAS, US_MUESTRAS);
+  if (hayPared(frente)) addWall(px, py, heading);
+  if (anotarAtras && hayPared(atras)) {
+    addWall(px, py, (heading + 2) % 4);
+    Serial.println(F("Pared atras"));
+  }
+  alinearEje(frente, atras);
 }
 
 void readWalls() {
@@ -207,18 +251,9 @@ void readWalls() {
   alinearConFrente(frente);
 }
 
-// Tras girar: la pared que ahora queda enfrente pudo no haberse leido
-// (la de atras del inicio nunca se lee)
-bool paredEnfrente() {
-  asentar(P.asentarMs);
-  float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
-  if (!hayPared(frente)) return false;
-  addWall(px, py, heading);
-  alinearConFrente(frente);
-  return true;
-}
-
-// Devuelve true si tuvo que girar
+// Devuelve true si tuvo que girar. Tras cada giro (de 90 o de 180) el robot
+// no queda justo sobre su centro: se centra con la pared de enfrente y/o la de
+// atras, y la de enfrente (que pudo no haberse leido) queda en el mapa.
 bool orientateTo(int8_t dir) {
   int8_t diff = (dir - heading + 4) % 4;
   if (diff == 0) return false;
@@ -228,7 +263,25 @@ bool orientateTo(int8_t dir) {
   iniciarGiro(grados);
   esperarMovimiento();
   heading = dir;
+  alinearFrenteAtras(false);
   return true;
+}
+
+// Antes de girar 90 hacia dir, confirma con el sensor de ese lado que no hay
+// pared. Si readWalls no vio una pared lateral, el robot giraria 90, la veria
+// enfrente y tendria que girar otros 90: un 180 en dos partes. Asi la anota sin
+// girar y el plan siguiente hace un solo giro (en un callejon, un 180 que luego
+// se centra con la pared de atras). Antes de un 180 no se revisa: atras casi
+// siempre es por donde llego y una lectura falsa cerraria el regreso.
+bool ladoLibre(int8_t dir) {
+  int8_t diff = (dir - heading + 4) % 4;
+  if (diff != 1 && diff != 3) return true;
+  uint8_t sensor = diff == 1 ? US_DER : US_IZQ;
+  if (!hayPared(ultrasonicoMedianaCm(sensor, US_MUESTRAS))) return true;
+  addWall(px, py, dir);
+  Serial.print(F("Pared ")); Serial.print(NOMBRE_US[sensor]);
+  Serial.println(F(" que no se habia visto: no giro"));
+  return false;
 }
 
 enum Avance : uint8_t { LLEGO, META, ATORADO };
@@ -282,6 +335,12 @@ Avance avanzarCelda(bool evitarMeta, int8_t& colorLeido) {
   return LLEGO;
 }
 
+// Casilla de inicio: es la unica celda cuya pared de atras no se leia (a las
+// demas se llega por atras): va al mapa y el robot se centra con ella.
+void alinearInicio() {
+  alinearFrenteAtras(true);
+}
+
 // Avanzar sin leer piso ni registrar (regreso al inicio)
 void avanzar() {
   iniciarAvance(CELDA_MM);
@@ -313,7 +372,8 @@ void mover() {
 // Gira hacia dir y avanza una celda registrando color. false si no se movio
 // (pared recien vista, meta roja enfrente o atorado): hay que volver a planear.
 bool pasoHacia(int8_t dir, bool evitarMeta) {
-  if (orientateTo(dir) && paredEnfrente()) return false;
+  if (!ladoLibre(dir)) return false;
+  if (orientateTo(dir) && walls[px][py][dir]) return false;   // pared recien vista
   int8_t c;
   Avance r = avanzarCelda(evitarMeta, c);
   registrarColor(px + dx[dir], py + dy[dir], c);
@@ -434,6 +494,7 @@ void correrPistaA() {
   registrarColor(INICIO, INICIO, COLOR_VERDE);
 
   tInicioRonda = millis();
+  alinearInicio();
   explorar();
 
   if (!salidaConocida) {
@@ -457,6 +518,9 @@ void setup() {
   colorCalCargar();      // calibracion hecha con el main de debug (EEPROM)
   colorIniciarTodos();
   ultrasonicosIniciar();
+  pantallaIniciar();
+  visionIniciar(true);   // ArUco en la fila 2; anuncia "B": el celular reinicia la vision
+  pantallaFila(0, "Color: -");
   esperarArranque();
   correrPistaA();
 }

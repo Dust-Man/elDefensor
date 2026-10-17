@@ -3,7 +3,7 @@
 // ---------------- Ultrasonicos HC-SR04 ----------------
 // Se disparan de uno en uno para que el eco de uno no lo escuche otro.
 // pulseIn bloquea como maximo ~US_DIST_MAX_CM*58 us por sensor (~12 ms con 200 cm).
-const char* const NOMBRE_US[NUM_ULTRASONICOS] = { "frente", "izq", "der" };
+const char* const NOMBRE_US[NUM_ULTRASONICOS] = { "frente", "izq", "der", "atras" };
 
 bool ultrasonicoAsignado(uint8_t i) {
   return PIN_US_TRIG[i] != US_SIN_PIN && PIN_US_ECHO[i] != US_SIN_PIN;

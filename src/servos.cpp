@@ -13,10 +13,24 @@ bool servosConectados = false;
 int servoMin() { return max(-SERVO_CERO_1, SERVO_CERO_2 - 180); }
 int servoMax() { return min(180 - SERVO_CERO_1, SERVO_CERO_2); }
 
+// Un pin compartido con un ultrasonico: el servo le meteria pulsos a su eco
+bool servoPinOcupado() {
+  for (uint8_t i = 0; i < NUM_ULTRASONICOS; i++) {
+    const uint8_t pines[2] = { PIN_US_TRIG[i], PIN_US_ECHO[i] };
+    for (uint8_t p : pines)
+      if (p == PIN_SERVO_1 || p == PIN_SERVO_2) return true;
+  }
+  return false;
+}
+
 // Attach con la configuracion probada; escribe antes para que no brinque a 90
 // Autor: Carlos Parrilla
 void servosConectar() {
   if (servosConectados) return;
+  if (servoPinOcupado()) {
+    Serial.println(F("!! Pines de servos ocupados por un ultrasonico (config.h): no se conectan"));
+    return;
+  }
   servo1.write(servoCrudo[0]);
   servo2.write(servoCrudo[1]);
   servo1.attach(PIN_SERVO_1, SERVO_PULSO_MIN, SERVO_PULSO_MAX);
