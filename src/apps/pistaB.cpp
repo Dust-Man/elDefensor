@@ -1,8 +1,8 @@
 // Pista B: niveles. Compilar/subir con el entorno [env:pistaB].
-// Seccion 1 (pelota en el 3x3) pendiente: depende de la vision. Por ahora se
-// arranca en el checkpoint de las lineas (PISTA_B_SECCION_INICIAL = 2) o en el
-// de los colores (= 3). Cada seccion es su propia funcion para que despues los
-// botones de lack of progress puedan arrancar en cualquiera.
+// La pelota no se atrapa (no hay mecanismo confiable): en la seccion 1 el robot
+// solo explora el 3x3 hasta el checkpoint de las lineas. PISTA_B_SECCION_INICIAL dice
+// en que seccion arranca (1, 2 o 3); cada seccion es su propia funcion para que
+// despues los botones de lack of progress puedan arrancar en cualquiera.
 #include <Arduino.h>
 #include "config.h"
 #include "movimiento.h"
@@ -42,6 +42,215 @@ void girarHacia(int8_t dir) {
 void avanzarMM(float mm) {
   iniciarAvance(mm);
   esperarMovimiento();
+}
+
+// ---------------------------------------------------------------------------
+// Seccion 1 sin pelota: explorar el 3x3 hasta el checkpoint IN
+// ---------------------------------------------------------------------------
+// La casilla de INICIO cambia por ronda y no se puede pre-mapear. Lo fijo es que
+// IN esta pegado al 3x3, a la derecha de su casilla central. Se explora como el
+// laberinto de la pista A: cuadricula virtual con el inicio al centro (el 3x3
+// cabe empiece donde empiece), paredes con los ultrasonicos y siempre hacia la
+// celda sin visitar mas cercana. Cada avance vigila el piso: a IN solo se entra
+// desde el 3x3 y avanzando hacia las lineas, asi que al ver su rojo con los DOS
+// sensores ya va entrando, en la direccion de la seccion 2 (la pelota naranja
+// es angosta: a lo mas la ve uno).
+constexpr int8_t S1_N = 9;
+constexpr int8_t S1_INICIO = S1_N / 2;
+const int8_t dx[4] = { 0, 1, 0, -1 };
+const int8_t dy[4] = { 1, 0, -1, 0 };
+
+struct Celda { int8_t x, y; };
+
+bool s1Pared[S1_N][S1_N][4];
+bool s1Visitada[S1_N][S1_N];
+int8_t s1Dist[S1_N][S1_N];
+int8_t s1x = S1_INICIO, s1y = S1_INICIO;
+
+bool s1Dentro(int8_t x, int8_t y) {
+  return x >= 0 && x < S1_N && y >= 0 && y < S1_N;
+}
+
+void s1AgregarPared(int8_t x, int8_t y, int8_t dir) {
+  s1Pared[x][y][dir] = true;
+  int8_t nx = x + dx[dir];
+  int8_t ny = y + dy[dir];
+  if (s1Dentro(nx, ny)) s1Pared[nx][ny][(dir + 2) % 4] = true;
+}
+
+bool s1Accesible(int8_t x, int8_t y, int8_t dir) {
+  return !s1Pared[x][y][dir] && s1Dentro(x + dx[dir], y + dy[dir]);
+}
+
+// Distancia de cada celda a la celda sin visitar mas cercana
+void s1FloodFill() {
+  static Celda cola[S1_N * S1_N];
+  uint8_t ini = 0, fin = 0;
+  for (int8_t x = 0; x < S1_N; x++)
+    for (int8_t y = 0; y < S1_N; y++) {
+      s1Dist[x][y] = s1Visitada[x][y] ? -1 : 0;
+      if (!s1Visitada[x][y]) cola[fin++] = { x, y };
+    }
+  while (ini < fin) {
+    Celda act = cola[ini++];
+    for (int8_t dir = 0; dir < 4; dir++) {
+      if (!s1Accesible(act.x, act.y, dir)) continue;
+      int8_t nx = act.x + dx[dir];
+      int8_t ny = act.y + dy[dir];
+      if (s1Dist[nx][ny] != -1) continue;
+      s1Dist[nx][ny] = s1Dist[act.x][act.y] + 1;
+      cola[fin++] = { nx, ny };
+    }
+  }
+}
+
+// Prefiere seguir derecho cuando hay empate para ahorrar giros
+int8_t s1MejorDireccion() {
+  int8_t mejor = -1;
+  int8_t menor = 127;
+  for (int8_t k = 0; k < 4; k++) {
+    int8_t dir = (heading + k) % 4;
+    if (!s1Accesible(s1x, s1y, dir)) continue;
+    int8_t d = s1Dist[s1x + dx[dir]][s1y + dy[dir]];
+    if (d >= 0 && d < menor) { menor = d; mejor = dir; }
+  }
+  return mejor;
+}
+
+// (Igual que en la pista A)
+bool hayPared(float cm) {
+  return cm > 0 && cm < US_PARED_CM;   // sin eco = no hay pared cerca
+}
+
+// (Igual que en la pista A) Si hay pared enfrente, se acerca o aleja hasta
+// quedar centrado en la celda: el error de los encoders no se acumula.
+void alinearConFrente(float cm) {
+  if (!ALINEAR_CON_PARED || !hayPared(cm)) return;
+  float error = cm - US_FRENTE_OBJETIVO_CM;
+  if (fabs(error) < 1.0f || fabs(error) > ALINEAR_MAX_CM) return;
+  avanzarMM(error * 10.0f);
+}
+
+void s1LeerParedes() {
+  asentar(P.asentarMs);
+  float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
+  float izq = ultrasonicoMedianaCm(US_IZQ, US_MUESTRAS);
+  float der = ultrasonicoMedianaCm(US_DER, US_MUESTRAS);
+  if (hayPared(frente)) s1AgregarPared(s1x, s1y, heading);
+  if (hayPared(der))    s1AgregarPared(s1x, s1y, (heading + 1) % 4);
+  if (hayPared(izq))    s1AgregarPared(s1x, s1y, (heading + 3) % 4);
+  alinearConFrente(frente);
+}
+
+// Gira hacia dir con las mismas protecciones de la pista A. false si ahi hay
+// pared y hay que volver a planear.
+bool s1GirarHacia(int8_t dir) {
+  int8_t diff = (dir - heading + 4) % 4;
+  if (diff == 0) return true;
+  // Antes de un giro de 90 confirma ese lado: si se escapo una pared, el robot
+  // giraria, la veria y tendria que girar otros 90 (un 180 en dos partes)
+  if (diff != 2 && hayPared(ultrasonicoMedianaCm(diff == 1 ? US_DER : US_IZQ, US_MUESTRAS))) {
+    s1AgregarPared(s1x, s1y, dir);
+    return false;
+  }
+  girarHacia(dir);
+  // La pared que ahora queda enfrente pudo no haberse leido (la de atras del inicio)
+  asentar(P.asentarMs);
+  float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
+  if (!hayPared(frente)) return true;
+  s1AgregarPared(s1x, s1y, dir);
+  alinearConFrente(frente);
+  return false;
+}
+
+enum S1Avance : uint8_t { S1_LLEGO, S1_ROJO, S1_ATORADO };
+
+// Avanza una celda vigilando el rojo de IN con los dos sensores (cada uno
+// COLOR_LECTURAS_MIN lecturas seguidas). desdeRojo = lo que avanzo desde la
+// primera lectura roja.
+S1Avance s1AvanzarCelda(float& desdeRojo) {
+  uint8_t racha[2] = { 0, 0 };
+  float sPrimera[2] = { 0, 0 };
+  bool rojo = false;
+  uint32_t tColor = 0;
+
+  iniciarAvance(CELDA_MM);
+  while (estado == AVANZANDO) {
+    controlActualizar();
+    if (millis() - tColor < COLOR_INTEGRACION_MS) continue;
+    tColor = millis();
+    float s = recorridoMM();
+    for (uint8_t k = 0; k < 2; k++) {
+      int8_t c;
+      if (!colorDetectar(k, c)) continue;
+      if (c != COLOR_ROJO) { racha[k] = 0; continue; }
+      if (racha[k] == 0) sPrimera[k] = s;
+      if (racha[k] < 255) racha[k]++;
+    }
+    if (racha[S_IZQ] >= COLOR_LECTURAS_MIN && racha[S_DER] >= COLOR_LECTURAS_MIN) {
+      detenerTodo();
+      rojo = true;
+    }
+  }
+  asentar(P.asentarMs);
+  if (rojo) {
+    desdeRojo = recorridoMM() - min(sPrimera[S_IZQ], sPrimera[S_DER]);
+    return S1_ROJO;
+  }
+  // Atorado (p. ej. empujando la pelota contra la pared): si no paso la mitad, regresa
+  if (movExcedido) {
+    float hecho = recorridoMM();
+    if (hecho < MEDIA) {
+      avanzarMM(-hecho);
+      return S1_ATORADO;
+    }
+  }
+  return S1_LLEGO;
+}
+
+// xFinal: donde queda el centro del robot respecto al centro de IN
+bool seccion1(float& xFinal) {
+  Serial.println(F("== Seccion 1: buscar el checkpoint IN (sin pelota) =="));
+  ultrasonicosLateralDesfase(0, 0);   // celdas como las del laberinto
+  heading = 0;
+  s1Visitada[s1x][s1y] = true;
+
+  for (uint8_t paso = 0; paso < B_S1_MAX_PASOS; paso++) {
+    s1LeerParedes();
+    s1FloodFill();
+    int8_t dir = s1MejorDireccion();
+    if (dir < 0) {
+      Serial.println(F("!! Ya no hay a donde explorar y no vi IN"));
+      return false;
+    }
+    if (!s1GirarHacia(dir)) continue;   // pared recien vista: volver a planear
+
+    float desdeRojo;
+    S1Avance r = s1AvanzarCelda(desdeRojo);
+    if (r == S1_ROJO) {
+      // Primera lectura roja: los sensores en la orilla de IN (MEDIA antes de su
+      // centro) y el centro del robot COLOR_OFFSET_MM mas atras
+      xFinal = desdeRojo - MEDIA - COLOR_OFFSET_MM;
+      Serial.print(F("Rojo de IN: el robot quedo a ")); Serial.print(-xFinal / 10.0f, 1);
+      Serial.println(F(" cm antes de su centro"));
+      float x0 = xFinal;
+      avanzarMM(B_EXTRA_CHECKPOINT_MM);
+      xFinal = x0 + recorridoMM();
+      return true;
+    }
+    if (r == S1_ATORADO) {
+      Serial.println(F("!! No se pudo pasar: se marca como pared"));
+      s1AgregarPared(s1x, s1y, dir);
+      continue;
+    }
+    s1x += dx[dir];
+    s1y += dy[dir];
+    s1Visitada[s1x][s1y] = true;
+    Serial.print(F("S1 pos ")); Serial.print(s1x - S1_INICIO); Serial.print(',');
+    Serial.println(s1y - S1_INICIO);
+  }
+  Serial.println(F("!! Demasiados pasos sin encontrar IN"));
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,10 +451,12 @@ bool esquivar(const Linea& primera, float xUltima) {
   return false;
 }
 
-bool seccion2() {
+// xInicial: donde esta el centro del robot respecto al centro de IN (0 si
+// arranca puesto en IN; la seccion 1 lo deja un poco antes)
+bool seccion2(float xInicial) {
   Serial.println(F("== Seccion 2: lineas blancas =="));
   heading = 0;
-  posX = 0;
+  posX = xInicial;
   posLat = DER * MEDIA;   // IN: centrado en la fila de abajo
   float vMaxNormal = P.vMax;
   P.vMax = B_VEL_LINEAS;
@@ -348,7 +559,9 @@ bool seccion3() {
 void correrPistaB() {
   uint32_t t0 = millis();
   bool ok = true;
-  if (PISTA_B_SECCION_INICIAL <= 2) ok = seccion2();
+  float xIn = 0;   // donde queda el robot respecto al centro de IN
+  if (PISTA_B_SECCION_INICIAL <= 1) ok = seccion1(xIn);
+  if (ok && PISTA_B_SECCION_INICIAL <= 2) ok = seccion2(xIn);
   if (ok) ok = seccion3();
   Serial.print(ok ? F("Pista B terminada en ") : F("Pista B detenida a los "));
   Serial.print((millis() - t0) / 1000); Serial.println(F(" s"));
