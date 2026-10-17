@@ -148,9 +148,16 @@ constexpr bool PISTA_A_TERMINAR_CON_COLORES = true;
 constexpr uint32_t PISTA_A_PAUSA_META_MS = 2000;   // quieto en la meta para que el juez la cuente
 
 // ---------------- Pista B (lineas blancas y colores) ----------------
-// Desde que seccion arranca (la 1, pelota, aun no esta). 2 = checkpoint IN de
-// las lineas, 3 = checkpoint F (para probar la seccion 3 sola).
-constexpr uint8_t PISTA_B_SECCION_INICIAL = 2;
+// Desde que seccion arranca: 1 = INICIO (ruta sin pelota), 2 = checkpoint IN de
+// las lineas, 3 = checkpoint F (para probar una seccion sola).
+constexpr uint8_t PISTA_B_SECCION_INICIAL = 1;
+
+// Seccion 1 SIN pelota: la casilla de INICIO cambia por ronda y no hay
+// pre-mapeo. El robot explora el 3x3 (como el laberinto de la pista A) hasta
+// ver con los dos sensores el rojo de IN, que esta a la derecha de la casilla
+// central; ahi avanza B_EXTRA_CHECKPOINT_MM y sigue con la seccion 2.
+constexpr uint8_t B_S1_MAX_PASOS = 60;           // seguridad: maximo de pasos explorando
+constexpr float B_EXTRA_CHECKPOINT_MM = 50.0f;   // tras ver el rojo de IN, cuanto mas avanza
 
 // Seccion 2: 2 filas x B_COLUMNAS de verde. IN a la izquierda de la fila de
 // abajo, F a la derecha de la fila de arriba. Sensores: S0 izquierdo, S1 derecho
@@ -160,11 +167,14 @@ constexpr int8_t B_FIN_LADO = 1;             // fila de F: +1 = izquierda (arrib
 constexpr float B_VEL_LINEAS = 100.0f;       // mm/s mientras busca lineas (frena antes de pisarlas)
 constexpr uint8_t B_LECTURAS_BLANCO = 2;     // lecturas blancas seguidas para dar una linea
 constexpr float B_MARGEN_SEPARACION_MM = 40.0f;   // ignora el blanco junto a la franja IN|verde
+constexpr uint8_t B_INTENTOS_LINEA = 6;      // intentos para pasar cada linea antes de rendirse
+constexpr float B_PASO_AJUSTE_MM = 30.0f;    // si un solo sensor ve blanco, cuanto se recorre al otro lado
+constexpr float B_LAT_EXTRA_MM = 20.0f;      // cuanto se puede pasar del centro de la fila hacia la pared
 // Centrado con las paredes de los lados mientras avanza (usa la calibracion
 // US_LATERAL_* del laberinto). En la seccion 2 las paredes estan a los lados de
 // las 2 filas: lo que debe leer cada sensor sale de la fila en la que va.
 // false si en la pista real no hay paredes ahi.
-constexpr bool B_CENTRAR_PAREDES = true;
+constexpr bool B_CENTRAR_PAREDES = false;
 
 // Seccion 3: cada color dice a que celda ir (respecto a la pista; "arriba" =
 // hacia donde ve el robot al salir de F). Verde = FIN.
