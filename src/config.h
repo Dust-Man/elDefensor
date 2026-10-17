@@ -141,11 +141,14 @@ constexpr int8_t B_FIN_LADO = 1;             // fila de F: +1 = izquierda (arrib
 constexpr float B_VEL_LINEAS = 100.0f;       // mm/s mientras busca lineas (frena antes de pisarlas)
 constexpr uint8_t B_LECTURAS_BLANCO = 2;     // lecturas blancas seguidas para dar una linea
 constexpr float B_MARGEN_SEPARACION_MM = 40.0f;   // ignora el blanco junto a la franja IN|verde
+constexpr uint8_t B_INTENTOS_LINEA = 6;      // intentos para pasar cada linea antes de rendirse
+constexpr float B_PASO_AJUSTE_MM = 30.0f;    // si un solo sensor ve blanco, cuanto se recorre al otro lado
+constexpr float B_LAT_EXTRA_MM = 20.0f;      // cuanto se puede pasar del centro de la fila hacia la pared
 // Centrado con las paredes de los lados mientras avanza (usa la calibracion
 // US_LATERAL_* del laberinto). En la seccion 2 las paredes estan a los lados de
 // las 2 filas: lo que debe leer cada sensor sale de la fila en la que va.
 // false si en la pista real no hay paredes ahi.
-constexpr bool B_CENTRAR_PAREDES = true;
+constexpr bool B_CENTRAR_PAREDES = false;
 
 // Seccion 3: cada color dice a que celda ir (respecto a la pista; "arriba" =
 // hacia donde ve el robot al salir de F). Verde = FIN.

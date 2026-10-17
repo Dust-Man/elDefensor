@@ -65,6 +65,7 @@ void centrarSegunFila() {
 struct Linea {
   float x;       // donde la vio el sensor
   int8_t fila;   // IZQ o DER: la fila que tapa
+  bool izq, der; // que sensores la vieron
 };
 
 // Avanza (rumbo 0) hasta xObjetivo vigilando los dos sensores. true si llego;
@@ -76,10 +77,23 @@ bool avanzarVigilando(float xObjetivo, Linea& linea) {
   float xPrimera[2] = { 0, 0 };   // x del sensor en la primera lectura blanca de la racha
   bool vista = false;
   uint32_t tColor = 0;
+  uint32_t tLog = 0;
 
   iniciarAvance(xObjetivo - x0);
   while (estado == AVANZANDO) {
     controlActualizar();
+    // Depuracion: que tanto lo esta moviendo de lado el centrado con paredes
+    if (millis() - tLog >= 300) {
+      tLog = millis();
+      Serial.print(F("  x=")); Serial.print((x0 + recorridoMM()) / 10.0f, 1);
+      Serial.print(F(" lat=")); Serial.print(posLat / 10.0f, 1);
+      if (hayLateral) {
+        Serial.print(F(" | pared err=")); Serial.print(errorLateral, 1);
+        Serial.print(F("cm incl=")); Serial.print(corrLateral, 1); Serial.println(F("g"));
+      } else {
+        Serial.print(F(" | sin pared, incl=")); Serial.print(corrLateral, 1); Serial.println(F("g"));
+      }
+    }
     // Una lectura por integracion del sensor: las de en medio repiten el mismo dato
     if (millis() - tColor < COLOR_INTEGRACION_MS) continue;
     tColor = millis();
@@ -108,6 +122,8 @@ bool avanzarVigilando(float xObjetivo, Linea& linea) {
 
   bool izq = racha[S_IZQ] >= B_LECTURAS_BLANCO;
   bool der = racha[S_DER] >= B_LECTURAS_BLANCO;
+  linea.izq = izq;
+  linea.der = der;
   if (izq && der) {
     // Las dos: si ya va en una fila, la linea es de esa fila; centrado, la que la vio primero
     if (posLat > MEDIA / 2)       linea.fila = IZQ;
@@ -119,7 +135,10 @@ bool avanzarVigilando(float xObjetivo, Linea& linea) {
     linea.x = izq ? xPrimera[S_IZQ] : xPrimera[S_DER];
   }
   Serial.print(F("Linea en x=")); Serial.print(linea.x / 10.0f, 1);
-  Serial.print(F(" cm, fila ")); Serial.println(linea.fila == IZQ ? F("izquierda") : F("derecha"));
+  Serial.print(F(" cm, fila ")); Serial.print(linea.fila == IZQ ? F("izquierda") : F("derecha"));
+  Serial.print(F(" (sensores: izq ")); Serial.print(izq ? F("blanco") : F("verde"));
+  Serial.print(F(", der ")); Serial.print(der ? F("blanco") : F("verde"));
+  Serial.print(F("; lat=")); Serial.print(posLat / 10.0f, 1); Serial.println(F(" cm)"));
   return false;
 }
 
@@ -150,6 +169,8 @@ void moverLateral(float latObjetivo) {
   int8_t lado = d > 0 ? IZQ : DER;
   girarHacia(lado == IZQ ? 3 : 1);
   float esperado = frenteEsperadoCm(latObjetivo, lado);
+  Serial.print(F("De lado a lat=")); Serial.print(latObjetivo / 10.0f, 1);
+  Serial.print(F(" cm: espero leer enfrente ")); Serial.print(esperado, 1); Serial.println(F(" cm"));
 
   // De lado, los ultrasonicos laterales ven a lo largo de la pista: no centran
   bool centrar = P.centrarParedes;
@@ -166,7 +187,9 @@ void moverLateral(float latObjetivo) {
     cerca = (cm > US_LATERAL_MIN_CM && cm <= esperado) ? cerca + 1 : 0;
     if (cerca >= 2) {
       detenerTodo();
-      Serial.println(F("Pared enfrente: freno antes de lo que decia la odometria"));
+      Serial.print(F("  Pared enfrente a ")); Serial.print(cm, 1);
+      Serial.print(F(" cm: freno con ")); Serial.print(recorridoMM() / 10.0f, 1);
+      Serial.print(F(" de ")); Serial.print(fabs(d) / 10.0f, 1); Serial.println(F(" cm"));
     }
   }
   P.centrarParedes = centrar;
@@ -174,26 +197,46 @@ void moverLateral(float latObjetivo) {
   asentar(P.asentarMs);
   float cm = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
   float error = cm - esperado;
-  if (cm > 0 && fabs(error) >= 1.0f && fabs(error) <= ALINEAR_MAX_CM) avanzarMM(error * 10.0f);
+  Serial.print(F("  Enfrente al final: "));
+  if (cm > 0) { Serial.print(cm, 1); Serial.print(F(" cm")); } else Serial.print(F("sin eco"));
+  bool ajusta = cm > 0 && fabs(error) >= 1.0f && fabs(error) <= ALINEAR_MAX_CM;
+  if (ajusta) { Serial.print(F(", ajusto ")); Serial.print(error, 1); Serial.print(F(" cm")); }
+  Serial.println();
+  if (ajusta) avanzarMM(error * 10.0f);
   girarHacia(0);
   posLat = latObjetivo;
 }
 
-// Regresa a la mitad de la columna anterior, se pasa al centro de la fila libre
-// (el hueco es de 30 cm: el robot tiene que ir centrado en el), cruza y vuelve a
-// la costura. Si en la fila libre tambien ve blanco, escogio mal: prueba la otra.
-bool esquivar(const Linea& linea, float xUltima) {
-  int8_t libre = -linea.fila;
-  for (uint8_t intento = 0; intento < 2; intento++) {
-    irAX(linea.x - MEDIA);
-    moverLateral(libre * MEDIA);
+// Regresa a la mitad de la columna anterior, se pasa a la fila libre (el hueco
+// es de 30 cm: el robot va centrado en el) y cruza. Si vuelve a ver blanco:
+//  - un solo sensor: quedo cargado hacia la linea (o la linea es mas larga): se
+//    recorre B_PASO_AJUSTE_MM alejandose de ese sensor y lo vuelve a intentar.
+//  - los dos: la linea tapa toda esa fila, se pasa a la otra.
+bool esquivar(const Linea& primera, float xUltima) {
+  const float latMax = MEDIA + B_LAT_EXTRA_MM;
+  float xLinea = primera.x;
+  float latObj = -primera.fila * MEDIA;   // centro de la fila libre
+  for (uint8_t intento = 1; intento <= B_INTENTOS_LINEA; intento++) {
+    Serial.print(F("Esquivar, intento ")); Serial.print(intento);
+    Serial.print(F(": lat=")); Serial.print(latObj / 10.0f, 1); Serial.println(F(" cm"));
+    irAX(xLinea - MEDIA);
+    moverLateral(latObj);
     Linea otra;
-    if (avanzarVigilando(min(linea.x + MEDIA, xUltima), otra)) {
-      if (posX < xUltima - 10) moverLateral(0);   // la ultima columna se queda en su fila
+    if (avanzarVigilando(min(xLinea + MEDIA, xUltima), otra)) {
+      // La siguiente linea iria una columna mas adelante. Si ahi ya se acabo el
+      // verde, esta era la ultima: directo a la fila de F, sin pasar por la costura.
+      const float xFinVerde = CELDA_MM * B_COLUMNAS + MEDIA;
+      bool ultima = xLinea + CELDA_MM > xFinVerde - B_MARGEN_SEPARACION_MM;
+      moverLateral(ultima ? B_FIN_LADO * MEDIA : 0);
       return true;
     }
-    Serial.println(F("!! Tambien hay linea en esta fila, pruebo la otra"));
-    libre = -libre;
+    xLinea = otra.x;
+    float nueva;
+    if (otra.izq && otra.der) nueva = latObj > 0 ? -MEDIA : MEDIA;
+    else nueva = constrain(latObj + (otra.izq ? -B_PASO_AJUSTE_MM : B_PASO_AJUSTE_MM), -latMax, latMax);
+    // Ya no se puede recorrer mas hacia la pared: la otra fila
+    if (fabs(nueva - latObj) < 1) nueva = latObj > 0 ? -MEDIA : MEDIA;
+    latObj = nueva;
   }
   Serial.println(F("!! No encontre el hueco de la linea"));
   return false;
