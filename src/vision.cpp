@@ -2,6 +2,7 @@
 #include "pantalla.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 VisionMsg visionUltimo = { false, 0, {} };
 bool visionEnlace = false;
@@ -97,7 +98,13 @@ constexpr uint8_t ANCHO_IDS_UNA_FILA =
 void visionFormatoUnaFila(const VisionMsg& m, char* fila /* 17 */) {
   char ids[ANCHO_IDS_UNA_FILA + 1];
   formatoIds(m, ids, ANCHO_IDS_UNA_FILA);
-  snprintf(fila, 17, "%s%-*s B:%s", PREFIJO_UNA_FILA, ANCHO_IDS_UNA_FILA, ids, m.bola ? "si" : "no");
+  // Sin "%-*s": el printf de avr-libc no soporta '*' como ancho (cortaba la linea tras "Ar:")
+  // y rellena a mano los ids hasta ANCHO_IDS_UNA_FILA columnas.
+  char relleno[ANCHO_IDS_UNA_FILA + 1];
+  memset(relleno, ' ', ANCHO_IDS_UNA_FILA);
+  relleno[ANCHO_IDS_UNA_FILA] = '\0';
+  memcpy(relleno, ids, strnlen(ids, ANCHO_IDS_UNA_FILA));
+  snprintf(fila, 17, "%s%s B:%s", PREFIJO_UNA_FILA, relleno, m.bola ? "si" : "no");
 }
 
 static bool mismosIds(const VisionMsg& a, const VisionMsg& b) {
