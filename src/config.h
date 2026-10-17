@@ -48,6 +48,9 @@ constexpr float YAW_SIGNO = 1.022f;           // cambiar a -1.0f si el yaw crece
 // contra una referencia en el piso y poner GIRO_ESCALA = 1440 / yaw leido.
 constexpr float GIRO_ESCALA = 1.0f;
 
+// Bus I2C (SDA 20, SCL 21): MPU, multiplexor y LCD
+constexpr uint32_t I2C_RELOJ_HZ = 400000;
+
 // Multiplexor I2C TCA9548A (SDA 20, SCL 21). A0-A2 a GND = 0x70
 constexpr uint8_t TCA_DIRECCION = 0x70;
 
@@ -85,6 +88,16 @@ constexpr float US_LATERAL_MIN_CM = 2.0f;        // por debajo el HC-SR04 no es 
 constexpr float US_LATERAL_MAX_CM = 14.0f;       // mas lejos no es pared pegada (~objetivo + 6)
 constexpr float US_LATERAL_SALTO_CM = 2.0f;      // salto mayor entre lecturas = filo o hueco: se ignora
 constexpr uint16_t US_LATERAL_VIGENCIA_MS = 100; // lectura mas vieja que esto ya no cuenta
+
+// LCD 16x2 con backpack PCF8574, en el bus principal (NO en un canal del
+// multiplexor). Si no se ve texto: potenciometro de contraste, o probar 0x3F.
+constexpr uint8_t LCD_DIRECCION = 0x27;
+constexpr uint32_t LCD_RELOJ_HZ = 100000;    // el PCF8574 solo garantiza 100 kHz
+constexpr uint16_t LCD_PAUSA_MS = 2;         // entre caracteres: ~1.2 ms cada uno, no frenar el lazo
+
+// Vision (celular con CVSquirtDeAga por el USB del Mega, Serial a 115200).
+// Recibe M,<bola>,<n>,<id1>,...,<idn> y lo muestra en el LCD.
+constexpr uint32_t VISION_TIMEOUT_MS = 10000;   // sin mensaje valido: "Sin enlace"
 
 // Pin sin conectar (boton): el codigo lo ignora
 constexpr uint8_t SIN_PIN = 255;

@@ -1,6 +1,7 @@
 // Pista A: laberinto de 5x5 unidades. Compilar/subir con el entorno [env:pistaA].
 // Explora todo el laberinto mostrando los colores del piso, llega a la meta roja
 // y regresa al inicio por las mismas unidades (bonus 1).
+// Los ArUco que ve el celular (CVSquirtDeAga) se muestran en el LCD (vision.h).
 // La logica es la de exploreColor.cpp (probada en mms); lo que cambia es el robot:
 // paredes con los ultrasonicos, color con el TCS34725 mientras avanza y
 // movimientos con el control de movimiento.cpp.
@@ -10,6 +11,8 @@
 #include "color.h"
 #include "ultrasonicos.h"
 #include "arranque.h"
+#include "pantalla.h"
+#include "vision.h"
 
 // La casilla de inicio cambia por ronda y no se puede pre-mapear: se usa una
 // cuadricula virtual de 9x9 con el inicio al centro, asi el laberinto real de 5x5
@@ -54,6 +57,13 @@ Celda ruta[N * N];
 uint8_t largoRuta = 0;
 
 uint32_t tInicioRonda = 0;
+
+// Vision: el celular manda los ArUco que ve y se muestran en el LCD. Corre en
+// cada vuelta del control, tambien mientras el robot espera un movimiento.
+void tareaFondo() {
+  visionActualizar();
+  pantallaActualizar();
+}
 
 // ---------------------------------------------------------------------------
 // Mapa
@@ -457,6 +467,8 @@ void setup() {
   colorCalCargar();      // calibracion hecha con el main de debug (EEPROM)
   colorIniciarTodos();
   ultrasonicosIniciar();
+  pantallaIniciar();
+  visionIniciar();       // anuncia "B": el celular reinicia la vision
   esperarArranque();
   correrPistaA();
 }

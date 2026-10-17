@@ -124,7 +124,7 @@ bool mpuLeerGiroZ(int16_t &gz) {
 
 bool mpuIniciar() {
   Wire.begin();
-  Wire.setClock(400000);
+  Wire.setClock(I2C_RELOJ_HZ);
   Wire.setWireTimeout(3000, true);   // si el ruido de motores traba el bus, no se cuelga
   mpuEscribir(0x6B, 0x01);   // PWR_MGMT_1: despertar
   delay(50);
@@ -380,7 +380,11 @@ void controlReiniciarReloj() {
   leerCuentas(cuentasPrevias);
 }
 
+// Por defecto no hace nada: el main que la necesite la define (vision, LCD)
+__attribute__((weak)) void tareaFondo() {}
+
 bool controlActualizar() {
+  tareaFondo();
   actualizarIMU();   // a su propio ritmo, fuera del candado de 20 ms
   uint32_t ahora = millis();
   if (ahora - tControl < CONTROL_PERIODO_MS) return false;
