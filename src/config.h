@@ -121,11 +121,12 @@ constexpr uint8_t US_MUESTRAS = 3;           // mediana de cuantas lecturas por 
 // Centrado con la pared de enfrente al llegar a una celda (corrige el error de encoders)
 constexpr bool ALINEAR_CON_PARED = true;
 constexpr float US_FRENTE_OBJETIVO_CM = 5.5f;   // MEDIR: lectura de frente con el robot centrado
-constexpr float ALINEAR_MAX_CM = 6.0f;          // errores mayores se ignoran (lectura dudosa)
-// Tras un giro de 180 el robot queda corrido (no gira justo sobre su centro):
-// se acomoda con la pared que ahora le queda atras (la que tenia enfrente).
+constexpr float ALINEAR_MAX_CM = 8.0f;          // errores mayores se ignoran (lectura dudosa)
+// Tras cada giro el robot queda corrido (no gira justo sobre su centro): se
+// centra con la pared de enfrente y/o la de atras (con las dos, promedia).
+// Tambien en la casilla de inicio.
 constexpr bool ALINEAR_CON_ATRAS = true;
-constexpr float US_ATRAS_OBJETIVO_CM = 7.0f;    // MEDIR con 'um': lectura de atras con el robot centrado
+constexpr float US_ATRAS_OBJETIVO_CM = 6.48f;    // MEDIR con 'um': lectura de atras con el robot centrado
 constexpr float ALINEAR_ATRAS_MAX_CM = 10.0f;   // el corrimiento del giro puede ser mayor que ALINEAR_MAX_CM
 
 // Color del piso. El sensor va adelante del centro: lee la celda siguiente
