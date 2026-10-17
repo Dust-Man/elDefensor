@@ -32,3 +32,8 @@ void ultrasonicosLateral(float& izq, float& der);
 // Error lateral en cm, + = hay que irse a la IZQUIERDA. ambas = hay pared a los
 // dos lados. false si ningun lado tiene pared confiable.
 bool ultrasonicosErrorLateral(float& eCm, bool& ambas);
+// Debug del centrado ('uc'), k: 0 = izq, 1 = der. Ultima lectura sin filtrar y por
+// que se acepto o no: ok, sin eco, cerca, lejos, salto, espera (falta la 2a
+// lectura parecida), vieja (nadie esta disparando ese lado)
+float ultrasonicosLateralCrudo(uint8_t k);
+const __FlashStringHelper* ultrasonicosLateralMotivo(uint8_t k);

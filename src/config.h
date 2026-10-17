@@ -120,13 +120,13 @@ constexpr uint8_t US_MUESTRAS = 3;           // mediana de cuantas lecturas por 
 
 // Centrado con la pared de enfrente al llegar a una celda (corrige el error de encoders)
 constexpr bool ALINEAR_CON_PARED = true;
-constexpr float US_FRENTE_OBJETIVO_CM = 5.5f;   // MEDIR: lectura de frente con el robot centrado
+constexpr float US_FRENTE_OBJETIVO_CM = 4.2f;   // MEDIR: lectura de frente con el robot centrado
 constexpr float ALINEAR_MAX_CM = 8.0f;          // errores mayores se ignoran (lectura dudosa)
 // Tras cada giro el robot queda corrido (no gira justo sobre su centro): se
 // centra con la pared de enfrente y/o la de atras (con las dos, promedia).
 // Tambien en la casilla de inicio.
 constexpr bool ALINEAR_CON_ATRAS = true;
-constexpr float US_ATRAS_OBJETIVO_CM = 6.48f;    // MEDIR con 'um': lectura de atras con el robot centrado
+constexpr float US_ATRAS_OBJETIVO_CM = 5.7f;    // MEDIR con 'um': lectura de atras con el robot centrado
 constexpr float ALINEAR_ATRAS_MAX_CM = 10.0f;   // el corrimiento del giro puede ser mayor que ALINEAR_MAX_CM
 
 // Color del piso. El sensor va adelante del centro: lee la celda siguiente
@@ -153,10 +153,13 @@ constexpr uint32_t PISTA_A_PAUSA_META_MS = 2000;   // quieto en la meta para que
 constexpr uint8_t PISTA_B_SECCION_INICIAL = 1;
 
 // Seccion 1 SIN pelota: la casilla de INICIO cambia por ronda y no hay
-// pre-mapeo. El robot explora el 3x3 (como el laberinto de la pista A) hasta
-// ver con los dos sensores el rojo de IN, que esta a la derecha de la casilla
-// central; ahi avanza B_EXTRA_CHECKPOINT_MM y sigue con la seccion 2.
-constexpr uint8_t B_S1_MAX_PASOS = 60;           // seguridad: maximo de pasos explorando
+// pre-mapeo. IN es una abertura en la pared de afuera del 3x3 (a la derecha de
+// su casilla central): el robot sigue esa pared con la regla de la mano hasta
+// ver con los dos sensores el rojo de IN; ahi avanza B_EXTRA_CHECKPOINT_MM y
+// sigue con la seccion 2.
+constexpr bool B_S1_MANO_IZQ = true;             // false = regla de la mano derecha
+constexpr uint8_t B_S1_CELDAS_INICIO = 1;        // INICIO no tiene paredes: celdas derecho antes de seguir la pared
+constexpr uint8_t B_S1_MAX_PASOS = 60;           // seguridad: maximo de celdas
 constexpr float B_EXTRA_CHECKPOINT_MM = 50.0f;   // tras ver el rojo de IN, cuanto mas avanza
 
 // Seccion 2: 2 filas x B_COLUMNAS de verde. IN a la izquierda de la fila de

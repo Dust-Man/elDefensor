@@ -1,6 +1,6 @@
 // Pista B: niveles. Compilar/subir con el entorno [env:pistaB].
 // La pelota no se atrapa (no hay mecanismo confiable): en la seccion 1 el robot
-// solo explora el 3x3 hasta el checkpoint de las lineas. PISTA_B_SECCION_INICIAL dice
+// solo sigue la pared de afuera del 3x3 hasta el checkpoint de las lineas. PISTA_B_SECCION_INICIAL dice
 // en que seccion arranca (1, 2 o 3); cada seccion es su propia funcion para que
 // despues los botones de lack of progress puedan arrancar en cualquiera.
 #include <Arduino.h>
@@ -45,122 +45,44 @@ void avanzarMM(float mm) {
 }
 
 // ---------------------------------------------------------------------------
-// Seccion 1 sin pelota: explorar el 3x3 hasta el checkpoint IN
+// Seccion 1 sin pelota: seguir la pared de afuera del 3x3 hasta IN
 // ---------------------------------------------------------------------------
-// La casilla de INICIO cambia por ronda y no se puede pre-mapear. Lo fijo es que
-// IN esta pegado al 3x3, a la derecha de su casilla central. Se explora como el
-// laberinto de la pista A: cuadricula virtual con el inicio al centro (el 3x3
-// cabe empiece donde empiece), paredes con los ultrasonicos y siempre hacia la
-// celda sin visitar mas cercana. Cada avance vigila el piso: a IN solo se entra
-// desde el 3x3 y avanzando hacia las lineas, asi que al ver su rojo con los DOS
-// sensores ya va entrando, en la direccion de la seccion 2 (la pelota naranja
-// es angosta: a lo mas la ve uno).
-constexpr int8_t S1_N = 9;
-constexpr int8_t S1_INICIO = S1_N / 2;
-const int8_t dx[4] = { 0, 1, 0, -1 };
-const int8_t dy[4] = { 1, 0, -1, 0 };
-
-struct Celda { int8_t x, y; };
-
-bool s1Pared[S1_N][S1_N][4];
-bool s1Visitada[S1_N][S1_N];
-int8_t s1Dist[S1_N][S1_N];
-int8_t s1x = S1_INICIO, s1y = S1_INICIO;
-
-bool s1Dentro(int8_t x, int8_t y) {
-  return x >= 0 && x < S1_N && y >= 0 && y < S1_N;
-}
-
-void s1AgregarPared(int8_t x, int8_t y, int8_t dir) {
-  s1Pared[x][y][dir] = true;
-  int8_t nx = x + dx[dir];
-  int8_t ny = y + dy[dir];
-  if (s1Dentro(nx, ny)) s1Pared[nx][ny][(dir + 2) % 4] = true;
-}
-
-bool s1Accesible(int8_t x, int8_t y, int8_t dir) {
-  return !s1Pared[x][y][dir] && s1Dentro(x + dx[dir], y + dy[dir]);
-}
-
-// Distancia de cada celda a la celda sin visitar mas cercana
-void s1FloodFill() {
-  static Celda cola[S1_N * S1_N];
-  uint8_t ini = 0, fin = 0;
-  for (int8_t x = 0; x < S1_N; x++)
-    for (int8_t y = 0; y < S1_N; y++) {
-      s1Dist[x][y] = s1Visitada[x][y] ? -1 : 0;
-      if (!s1Visitada[x][y]) cola[fin++] = { x, y };
-    }
-  while (ini < fin) {
-    Celda act = cola[ini++];
-    for (int8_t dir = 0; dir < 4; dir++) {
-      if (!s1Accesible(act.x, act.y, dir)) continue;
-      int8_t nx = act.x + dx[dir];
-      int8_t ny = act.y + dy[dir];
-      if (s1Dist[nx][ny] != -1) continue;
-      s1Dist[nx][ny] = s1Dist[act.x][act.y] + 1;
-      cola[fin++] = { nx, ny };
-    }
-  }
-}
-
-// Prefiere seguir derecho cuando hay empate para ahorrar giros
-int8_t s1MejorDireccion() {
-  int8_t mejor = -1;
-  int8_t menor = 127;
-  for (int8_t k = 0; k < 4; k++) {
-    int8_t dir = (heading + k) % 4;
-    if (!s1Accesible(s1x, s1y, dir)) continue;
-    int8_t d = s1Dist[s1x + dx[dir]][s1y + dy[dir]];
-    if (d >= 0 && d < menor) { menor = d; mejor = dir; }
-  }
-  return mejor;
-}
+// La casilla de INICIO cambia por ronda y no se puede pre-mapear. Lo fijo: IN
+// es una abertura en la pared de afuera del 3x3 (a la derecha de su casilla
+// central), igual que la de INICIO, y la celda de la pelota es una isla en
+// medio. La casilla de INICIO no tiene paredes: primero avanza derecho al 3x3
+// (B_S1_CELDAS_INICIO) y desde ahi, siempre con la pared pegada del mismo lado
+// (regla de la mano izquierda o derecha, B_S1_MANO_IZQ), recorre la orilla de afuera:
+// nunca rodea la isla ni entra a la celda de la pelota, y la primera abertura
+// despues de INICIO es IN. No hace falta mapa. Cada avance vigila el piso: a IN
+// solo se entra desde el 3x3 y avanzando hacia las lineas, asi que al ver su
+// rojo con los DOS sensores ya va entrando (la pelota naranja es angosta: a lo
+// mas la ve uno).
 
 // (Igual que en la pista A)
 bool hayPared(float cm) {
   return cm > 0 && cm < US_PARED_CM;   // sin eco = no hay pared cerca
 }
 
-// (Igual que en la pista A) Si hay pared enfrente, se acerca o aleja hasta
-// quedar centrado en la celda: el error de los encoders no se acumula.
+// (Igual que en la pista A) Centrado adelante/atras con la pared de enfrente
+// y/o la de atras. Sin pared (o lectura dudosa) ese lado se ignora; con las dos
+// promedia.
+void alinearEje(float frente, float atras) {
+  bool f = ALINEAR_CON_PARED && hayPared(frente) && fabs(frente - US_FRENTE_OBJETIVO_CM) <= ALINEAR_MAX_CM;
+  bool a = ALINEAR_CON_ATRAS && hayPared(atras) && fabs(atras - US_ATRAS_OBJETIVO_CM) <= ALINEAR_ATRAS_MAX_CM;
+  float adelante;   // cm que hay que avanzar para quedar centrado
+  if (f && a)  adelante = ((frente - US_FRENTE_OBJETIVO_CM) - (atras - US_ATRAS_OBJETIVO_CM)) / 2;
+  else if (f)  adelante = frente - US_FRENTE_OBJETIVO_CM;
+  else if (a)  adelante = US_ATRAS_OBJETIVO_CM - atras;
+  else return;
+  if (fabs(adelante) < 1.0f) return;
+  Serial.print(F("Centrado ")); Serial.print(f && a ? F("frente+atras") : (f ? F("frente") : F("atras")));
+  Serial.print(F(": ")); Serial.print(adelante, 1); Serial.println(F(" cm"));
+  avanzarMM(adelante * 10.0f);
+}
+
 void alinearConFrente(float cm) {
-  if (!ALINEAR_CON_PARED || !hayPared(cm)) return;
-  float error = cm - US_FRENTE_OBJETIVO_CM;
-  if (fabs(error) < 1.0f || fabs(error) > ALINEAR_MAX_CM) return;
-  avanzarMM(error * 10.0f);
-}
-
-void s1LeerParedes() {
-  asentar(P.asentarMs);
-  float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
-  float izq = ultrasonicoMedianaCm(US_IZQ, US_MUESTRAS);
-  float der = ultrasonicoMedianaCm(US_DER, US_MUESTRAS);
-  if (hayPared(frente)) s1AgregarPared(s1x, s1y, heading);
-  if (hayPared(der))    s1AgregarPared(s1x, s1y, (heading + 1) % 4);
-  if (hayPared(izq))    s1AgregarPared(s1x, s1y, (heading + 3) % 4);
-  alinearConFrente(frente);
-}
-
-// Gira hacia dir con las mismas protecciones de la pista A. false si ahi hay
-// pared y hay que volver a planear.
-bool s1GirarHacia(int8_t dir) {
-  int8_t diff = (dir - heading + 4) % 4;
-  if (diff == 0) return true;
-  // Antes de un giro de 90 confirma ese lado: si se escapo una pared, el robot
-  // giraria, la veria y tendria que girar otros 90 (un 180 en dos partes)
-  if (diff != 2 && hayPared(ultrasonicoMedianaCm(diff == 1 ? US_DER : US_IZQ, US_MUESTRAS))) {
-    s1AgregarPared(s1x, s1y, dir);
-    return false;
-  }
-  girarHacia(dir);
-  // La pared que ahora queda enfrente pudo no haberse leido (la de atras del inicio)
-  asentar(P.asentarMs);
-  float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
-  if (!hayPared(frente)) return true;
-  s1AgregarPared(s1x, s1y, dir);
-  alinearConFrente(frente);
-  return false;
+  alinearEje(cm, US_SIN_ECO);
 }
 
 enum S1Avance : uint8_t { S1_LLEGO, S1_ROJO, S1_ATORADO };
@@ -208,22 +130,49 @@ S1Avance s1AvanzarCelda(float& desdeRojo) {
   return S1_LLEGO;
 }
 
+// Opciones de la regla de la mano, en orden (relativas al rumbo: 0 enfrente,
+// 1 derecha, 2 atras, 3 izquierda). Atras es lo ultimo: un callejon, como la
+// casilla de INICIO vista desde adentro.
+const int8_t ORDEN_MANO_IZQ[4] = { 3, 0, 1, 2 };
+const int8_t ORDEN_MANO_DER[4] = { 1, 0, 3, 2 };
+
 // xFinal: donde queda el centro del robot respecto al centro de IN
 bool seccion1(float& xFinal) {
-  Serial.println(F("== Seccion 1: buscar el checkpoint IN (sin pelota) =="));
+  Serial.println(F("== Seccion 1: siguiendo la pared hasta IN (sin pelota) =="));
   ultrasonicosLateralDesfase(0, 0);   // celdas como las del laberinto
   heading = 0;
-  s1Visitada[s1x][s1y] = true;
+  const int8_t* orden = B_S1_MANO_IZQ ? ORDEN_MANO_IZQ : ORDEN_MANO_DER;
+
+  // En INICIO no hay pared que seguir (la mano veria todo libre y se saldria):
+  // derecho hasta estar dentro del 3x3
+  avanzarMM(CELDA_MM * B_S1_CELDAS_INICIO);
 
   for (uint8_t paso = 0; paso < B_S1_MAX_PASOS; paso++) {
-    s1LeerParedes();
-    s1FloodFill();
-    int8_t dir = s1MejorDireccion();
-    if (dir < 0) {
-      Serial.println(F("!! Ya no hay a donde explorar y no vi IN"));
-      return false;
+    asentar(P.asentarMs);
+    float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
+    bool libre[4];
+    libre[0] = !hayPared(frente);
+    libre[1] = !hayPared(ultrasonicoMedianaCm(US_DER, US_MUESTRAS));
+    libre[2] = true;   // por donde llego
+    libre[3] = !hayPared(ultrasonicoMedianaCm(US_IZQ, US_MUESTRAS));
+    alinearConFrente(frente);
+
+    // Primera opcion libre segun la mano. Tras girar se confirma con el sensor
+    // de enfrente: si ahi hay pared, la lectura del lado fallo y se prueba la
+    // siguiente opcion desde ahi mismo (sin dar la vuelta a la orilla al reves)
+    const int8_t base = heading;
+    for (uint8_t k = 0; k < 4; k++) {
+      int8_t rel = orden[k];
+      if (!libre[rel]) continue;
+      if (rel == 0 && heading == base) break;   // derecho, sin girar
+      girarHacia((base + rel) % 4);
+      // Tras girar queda corrido (no gira justo sobre su centro): enfrente y/o atras
+      asentar(P.asentarMs);
+      float f = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
+      alinearEje(f, ultrasonicoMedianaCm(US_ATRAS, US_MUESTRAS));
+      if (!hayPared(f)) break;
+      Serial.println(F("  Ese lado si tenia pared, pruebo la siguiente opcion"));
     }
-    if (!s1GirarHacia(dir)) continue;   // pared recien vista: volver a planear
 
     float desdeRojo;
     S1Avance r = s1AvanzarCelda(desdeRojo);
@@ -238,16 +187,7 @@ bool seccion1(float& xFinal) {
       xFinal = x0 + recorridoMM();
       return true;
     }
-    if (r == S1_ATORADO) {
-      Serial.println(F("!! No se pudo pasar: se marca como pared"));
-      s1AgregarPared(s1x, s1y, dir);
-      continue;
-    }
-    s1x += dx[dir];
-    s1y += dy[dir];
-    s1Visitada[s1x][s1y] = true;
-    Serial.print(F("S1 pos ")); Serial.print(s1x - S1_INICIO); Serial.print(',');
-    Serial.println(s1y - S1_INICIO);
+    if (r == S1_ATORADO) Serial.println(F("!! No se pudo pasar, vuelvo a leer paredes"));
   }
   Serial.println(F("!! Demasiados pasos sin encontrar IN"));
   return false;

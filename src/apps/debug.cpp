@@ -111,6 +111,7 @@ void imprimirColorContinuo() {
 
 // ---------------- Ultrasonicos ----------------
 bool usContinuo = false;   // 'uu' imprime cada US_PERIODO_MS
+bool usCentrado = false;   // 'uc' debug del centrado con paredes
 
 // Tecla 'u' para depurar los ultrasonicos. linea[1] es el subcomando.
 void comandoUltrasonicos(char* linea) {
@@ -132,8 +133,15 @@ void comandoUltrasonicos(char* linea) {
       ultrasonicosImprimir(d);
       break;
     }
+    case 'c':                                                // uc   debug del centrado on/off
+      usCentrado = !usCentrado;
+      if (usCentrado) {
+        usContinuo = false;   // dispararia los mismos sensores y se cruzan los ecos
+        if (estado != AVANZANDO) ultrasonicosLateralReiniciar();
+      }
+      Serial.println(usCentrado ? F("Debug de centrado ON") : F("Debug de centrado OFF")); break;
     default:
-      Serial.println(F("Ultrasonicos: u lectura | uu continuo | um mediana | ui pines"));
+      Serial.println(F("Ultrasonicos: u lectura | uu continuo | um mediana | uc centrado | ui pines"));
   }
 }
 
@@ -177,6 +185,146 @@ void imprimirUltrasonicoContinuo() {
   if (++i < NUM_ULTRASONICOS) return;
   i = 0;
   ultrasonicosImprimir(d);
+}
+
+// ---------------- Centrado con paredes 'uc' ----------------
+// Todo el camino del centrado: lectura cruda de cada lado y si el filtro la acepto
+// (o por que no), el error lateral, la inclinacion de rumbo que pide (obj) y la que
+// va aplicando (corr, limitada por ctasa).
+// Quieto (s o l): dispara los laterales al ritmo del lazo, igual que al avanzar, sin
+// mover motores. Con 'l' empujar el robot entre dos paredes y revisar que el signo
+// sea el correcto. Avanzando: los dispara el centrado mismo y esta linea reemplaza
+// a la de imprimirDebug.
+constexpr float CENTRADO_TOL_CM = 0.5f;   // solo para mostrar "centrado"
+
+void imprimirLadoCentrado(const __FlashStringHelper* nombre, uint8_t k) {
+  float d = ultrasonicosLateralCrudo(k);
+  Serial.print(nombre);
+  if (d > 0) Serial.print(d, 1); else Serial.print(F("---"));
+  Serial.print(' '); Serial.print(ultrasonicosLateralMotivo(k));
+}
+
+void imprimirCentrado(bool ciclo) {
+  static uint32_t tUltimo = 0;
+  if (!usCentrado || estado == GIRANDO) return;
+  bool quieto = (estado == DETENIDO || estado == LIBRE);
+  if (quieto && ciclo) ultrasonicosLateralActualizar();
+  if (millis() - tUltimo < US_PERIODO_MS) return;
+  tUltimo = millis();
+
+  Serial.print(F("CEN"));
+  if (!quieto) {
+    Serial.print(F("  cm="));   Serial.print(recorridoMM() / 10.0f, 1);
+    Serial.print(F("  yaw="));  Serial.print(yaw, 1);
+    Serial.print(F("  yObj=")); Serial.print(yawObjetivo, 1);
+  }
+  imprimirLadoCentrado(F("  izq="), 0);
+  imprimirLadoCentrado(F("  der="), 1);
+
+  float e, dIzq, dDer;
+  bool ambas;
+  bool hay = ultrasonicosErrorLateral(e, ambas);
+  if (hay) {
+    ultrasonicosLateral(dIzq, dDer);
+    Serial.print(F("  e=")); Serial.print(e, 1);
+    Serial.print(ambas ? F(" (ambas)") : dIzq > 0 ? F(" (solo izq)") : F(" (solo der)"));
+    Serial.print(F("  obj=")); Serial.print(constrain(P.centradoKp * e, -P.centradoMax, P.centradoMax), 1);
+  } else {
+    Serial.print(F("  sin pared: solo giroscopio"));
+  }
+  if (!quieto) { Serial.print(F("  corr=")); Serial.print(corrLateral, 1); }
+  if (hay) {
+    if (fabs(e) < CENTRADO_TOL_CM) Serial.print(F("  centrado"));
+    else Serial.print(e > 0 ? F("  <- ir IZQ") : F("  ir DER ->"));
+  }
+  if (!P.centrarParedes) Serial.print(F("  [centrado OFF: w]"));
+  Serial.println();
+}
+
+// ---------------- Centrado adelante/atras 'a' ----------------
+// Misma cuenta que alinearEje() de las pistas: cada pared dice cuanto avanzar para
+// quedar centrado y con las dos se promedia. a = frente+atras, af = solo frente
+// (sin pared atras), at = solo atras (sin pared enfrente), am = medir sin moverse.
+// Imprime lo que dice cada pared (aunque no se use), avanza y al terminar vuelve a
+// medir para ver cuanto falto.
+bool ejeFrente = false, ejeAtras = false;   // paredes que usa el centrado en curso
+bool ejeVerificar = false;                  // al terminar el avance, volver a medir
+
+// Imprime una pared y lo que dice. true si se usa y la lectura sirve
+bool paredEje(const __FlashStringHelper* nombre, float cm, float adelante, float maxCm, bool usar) {
+  Serial.print(F("  ")); Serial.print(nombre); Serial.print('=');
+  if (cm <= 0) Serial.print(F("---"));
+  else { Serial.print(cm, 1); Serial.print(F("cm -> avanzar ")); Serial.print(adelante, 1); }
+  bool pared = cm > 0 && cm < US_PARED_CM;
+  bool sirve = pared && fabs(adelante) <= maxCm;
+  if (!usar)       Serial.println(F("  (no se usa)"));
+  else if (!pared) Serial.println(F("  ignorada: sin pared"));
+  else if (!sirve) Serial.println(F("  ignorada: lectura dudosa (error > maximo)"));
+  else             Serial.println(F("  ok"));
+  return usar && sirve;
+}
+
+// Lee enfrente y atras. adelante = cm a avanzar para quedar centrado; false si
+// ninguna pared sirve
+bool medirEje(float& adelante) {
+  float frente = ultrasonicoMedianaCm(US_FRENTE, US_MUESTRAS);
+  float atras = ultrasonicoMedianaCm(US_ATRAS, US_MUESTRAS);
+  float aF = frente - US_FRENTE_OBJETIVO_CM;
+  float aA = US_ATRAS_OBJETIVO_CM - atras;
+  bool f = paredEje(F("frente"), frente, aF, ALINEAR_MAX_CM, ejeFrente);
+  bool a = paredEje(F("atras"), atras, aA, ALINEAR_ATRAS_MAX_CM, ejeAtras);
+  if (f && a)  adelante = (aF + aA) / 2;
+  else if (f)  adelante = aF;
+  else if (a)  adelante = aA;
+  else return false;
+  return true;
+}
+
+void iniciarCentradoEje(bool frente, bool atras) {
+  ejeFrente = frente;
+  ejeAtras = atras;
+  Serial.print(F("Centrado "));
+  Serial.println(frente && atras ? F("frente+atras") : frente ? F("solo frente") : F("solo atras"));
+  asentar(P.asentarMs);
+  float adelante;
+  if (!medirEje(adelante)) { Serial.println(F("  Ninguna pared sirve: no se mueve")); return; }
+  if (fabs(adelante) < 1.0f) {
+    Serial.print(F("  Ya centrado (")); Serial.print(adelante, 1); Serial.println(F(" cm)"));
+    return;
+  }
+  controlReiniciarReloj();   // las medianas bloquearon el lazo
+  iniciarAvance(adelante * 10.0f);
+  ejeVerificar = true;
+}
+
+void comandoEje(char* linea) {
+  switch (linea[1]) {
+    case '\0': iniciarCentradoEje(true, true); break;    // a    frente + atras
+    case 'f':  iniciarCentradoEje(true, false); break;   // af   solo frente (sin pared atras)
+    case 't':  iniciarCentradoEje(false, true); break;   // at   solo atras (sin pared enfrente)
+    case 'm': {                                          // am   medir las dos sin moverse
+      ejeFrente = ejeAtras = true;
+      float adelante;
+      if (medirEje(adelante)) { Serial.print(F("  Avanzaria ")); Serial.print(adelante, 1); Serial.println(F(" cm")); }
+      else Serial.println(F("  Ninguna pared sirve"));
+      break;
+    }
+    default:
+      Serial.println(F("Centrado adelante/atras: a frente+atras | af solo frente | at solo atras | am medir"));
+  }
+}
+
+// Se llama en cada loop: al terminar el avance del centrado vuelve a medir
+void actualizarCentradoEje() {
+  if (!ejeVerificar) return;
+  if (estado == LIBRE) { ejeVerificar = false; return; }
+  if (estado != DETENIDO) return;
+  ejeVerificar = false;
+  asentar(P.asentarMs);
+  Serial.println(F("Despues del centrado:"));
+  float adelante;
+  if (medirEje(adelante)) { Serial.print(F("  Falta ")); Serial.print(adelante, 1); Serial.println(F(" cm")); }
+  else Serial.println(F("  Ninguna pared sirve"));
 }
 
 // ---------------- Rutina 'r' ----------------  Autor: Carlos Parrilla
@@ -274,7 +422,7 @@ void procesarComando(char* linea) {
   switch (cmd) {
     case 'f': cuentaRegresiva(); iniciarAvance(valor * 10.0f); break;   // valor en CENTIMETROS
     case 'g': cuentaRegresiva(); iniciarGiro(valor); break;
-    case 's': detenerTodo(); rutinaActiva = false; break;   // Autor: Carlos Parrilla -- 's' cancela la rutina
+    case 's': detenerTodo(); rutinaActiva = false; ejeVerificar = false; break;   // Autor: Carlos Parrilla -- 's' cancela la rutina
     case 'l': soltarTodos(); estado = LIBRE;
               Serial.println(F("Ruedas LIBRES (s para frenar)")); break;
     case 'e': imprimirCuentas(); break;
@@ -288,8 +436,9 @@ void procesarComando(char* linea) {
     case 'u': comandoUltrasonicos(linea); break;
     case 'w': P.centrarParedes = !P.centrarParedes;
               Serial.println(P.centrarParedes ? F("Centrado con paredes ON") : F("Centrado con paredes OFF")); break;
+    case 'a': if (quieto && !rutinaActiva) comandoEje(linea); break;
     case 't': comandoAjuste(linea); break;
-    default:  Serial.println(F("Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos, w centrado, t ajustes"));
+    default:  Serial.println(F("Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos, w centrado, a centrar frente/atras, t ajustes"));
   }
 }
 
@@ -309,6 +458,7 @@ void leerSerial() {
 void imprimirDebug() {
   static uint32_t tUltimo = 0;
   if (estado == DETENIDO) return;          // no llenar el monitor si está quieto
+  if (usCentrado && estado != GIRANDO) return;   // lo imprime imprimirCentrado()
   if (millis() - tUltimo < 250) return;
   tUltimo = millis();
   if (estado == LIBRE) {   // yaw para calibrar GIRO_ESCALA girando a mano
@@ -345,12 +495,12 @@ void setup() {
   colorIniciarTodos();
   ultrasonicosIniciar();
 
-  Serial.println(F("Listo. Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos, w centrado, t ajustes"));   // Autor: Carlos Parrilla (z servos, r rutina)
+  Serial.println(F("Listo. Comandos: f<cm> g<grados> s | l libre, e encoders, x cero, p signos, v<pwm>, z servos, r rutina, c color, u ultrasonicos, w centrado, a centrar frente/atras, t ajustes"));   // Autor: Carlos Parrilla (z servos, r rutina)
   controlReiniciarReloj();
 }
 
 void loop() {
-  controlActualizar();
+  bool ciclo = controlActualizar();
   if (movExcedido) {   // el tiempo maximo tambien cancela la rutina
     movExcedido = false;
     rutinaActiva = false;
@@ -358,7 +508,9 @@ void loop() {
 
   leerSerial();
   actualizarRutina();   // Autor: Carlos Parrilla
+  actualizarCentradoEje();
   imprimirDebug();
   imprimirColorContinuo();
   imprimirUltrasonicoContinuo();
+  imprimirCentrado(ciclo);
 }

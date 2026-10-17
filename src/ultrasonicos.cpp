@@ -76,11 +76,16 @@ void ultrasonicosLeerTodos() {
 // a ~25 Hz y el eco de uno no lo escucha el otro. Timeout corto (US_LATERAL_MAX_CM)
 // para no frenar el lazo. Sin eco aqui NO significa "no hay pared", solo que la
 // lectura no sirve para centrar (el mapeo sigue siendo con el robot parado).
+// Por que se acepto o no la ultima lectura (solo para el debug 'uc')
+enum : uint8_t { LAT_OK, LAT_SIN_ECO, LAT_CERCA, LAT_LEJOS, LAT_SALTO, LAT_ESPERA };
 struct Lateral {
   float cm;        // ultima lectura aceptada
   float previa;    // ultima lectura en rango (para detectar saltos), o US_SIN_ECO
   bool ok;         // la ultima lectura fue aceptada
   uint32_t t;      // millis de la ultima lectura aceptada
+  float cruda;     // ultima lectura sin filtrar
+  uint8_t motivo;  // LAT_*
+  uint32_t tCruda; // millis de la ultima lectura (aceptada o no)
 };
 Lateral lateral[2];   // 0 = izq, 1 = der
 uint8_t lateralSiguiente = 0;
@@ -96,6 +101,8 @@ void ultrasonicosLateralReiniciar() {
   for (uint8_t k = 0; k < 2; k++) {
     lateral[k].previa = US_SIN_ECO;
     lateral[k].ok = false;
+    lateral[k].cruda = US_SIN_ECO;
+    lateral[k].motivo = LAT_ESPERA;
   }
 }
 
@@ -108,6 +115,14 @@ void ultrasonicosLateralActualizar() {
   bool enRango = d > US_LATERAL_MIN_CM && d < maxCm;
   // Se acepta con dos lecturas seguidas parecidas: un filo o un hueco da un salto
   bool estable = enRango && L.previa > 0 && fabs(d - L.previa) <= US_LATERAL_SALTO_CM;
+  L.cruda = d;
+  L.tCruda = millis();
+  if (estable)                     L.motivo = LAT_OK;
+  else if (d < 0)                  L.motivo = LAT_SIN_ECO;
+  else if (d <= US_LATERAL_MIN_CM) L.motivo = LAT_CERCA;
+  else if (d >= maxCm)             L.motivo = LAT_LEJOS;
+  else if (L.previa > 0)           L.motivo = LAT_SALTO;
+  else                             L.motivo = LAT_ESPERA;   // falta la 2a lectura parecida
   L.previa = enRango ? d : US_SIN_ECO;
   L.ok = estable;
   if (estable) { L.cm = d; L.t = millis(); }
@@ -132,4 +147,21 @@ bool ultrasonicosErrorLateral(float& eCm, bool& ambas) {
   else if (izq) eCm = lateral[0].cm - objIzq;
   else if (der) eCm = objDer - lateral[1].cm;
   return izq || der;
+}
+
+float ultrasonicosLateralCrudo(uint8_t k) {
+  return lateral[k].cruda;
+}
+
+const __FlashStringHelper* ultrasonicosLateralMotivo(uint8_t k) {
+  const Lateral& L = lateral[k];
+  if (millis() - L.tCruda >= US_LATERAL_VIGENCIA_MS) return F("vieja");   // nadie lo esta leyendo
+  switch (L.motivo) {
+    case LAT_OK:      return F("ok");
+    case LAT_SIN_ECO: return F("sin eco");
+    case LAT_CERCA:   return F("cerca");
+    case LAT_LEJOS:   return F("lejos");
+    case LAT_SALTO:   return F("salto");
+    default:          return F("espera");
+  }
 }
