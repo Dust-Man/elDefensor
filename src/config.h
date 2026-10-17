@@ -42,7 +42,7 @@ constexpr uint8_t SERVO_MS_POR_GRADO = 15;   // velocidad del barrido 'zb'
 // MPU6050 - giroscopio
 constexpr uint8_t MPU_DIRECCION = 0x68;
 constexpr float GIRO_LSB_POR_GPS = 65.5f;   // sensibilidad para el rango +-500 grados/s
-constexpr float YAW_SIGNO = 1.022f;           // cambiar a -1.0f si el yaw crece al reves
+constexpr float YAW_SIGNO = 1.018f;           // cambiar a -1.0f si el yaw crece al reves
 // El MPU6050 trae hasta +-3% de error de sensibilidad: cada giro de 90 deja ~2 grados
 // de error. CALIBRAR: con 'l' (ruedas libres) girar el robot a mano 4 vueltas exactas
 // contra una referencia en el piso y poner GIRO_ESCALA = 1440 / yaw leido.
@@ -121,11 +121,12 @@ constexpr uint8_t US_MUESTRAS = 3;           // mediana de cuantas lecturas por 
 // Centrado con la pared de enfrente al llegar a una celda (corrige el error de encoders)
 constexpr bool ALINEAR_CON_PARED = true;
 constexpr float US_FRENTE_OBJETIVO_CM = 5.5f;   // MEDIR: lectura de frente con el robot centrado
-constexpr float ALINEAR_MAX_CM = 6.0f;          // errores mayores se ignoran (lectura dudosa)
-// Tras un giro de 180 el robot queda corrido (no gira justo sobre su centro):
-// se acomoda con la pared que ahora le queda atras (la que tenia enfrente).
+constexpr float ALINEAR_MAX_CM = 8.0f;          // errores mayores se ignoran (lectura dudosa)
+// Tras cada giro el robot queda corrido (no gira justo sobre su centro): se
+// centra con la pared de enfrente y/o la de atras (con las dos, promedia).
+// Tambien en la casilla de inicio.
 constexpr bool ALINEAR_CON_ATRAS = true;
-constexpr float US_ATRAS_OBJETIVO_CM = 5.5f;    // MEDIR con 'um': lectura de atras con el robot centrado
+constexpr float US_ATRAS_OBJETIVO_CM = 6.48f;    // MEDIR con 'um': lectura de atras con el robot centrado
 constexpr float ALINEAR_ATRAS_MAX_CM = 10.0f;   // el corrimiento del giro puede ser mayor que ALINEAR_MAX_CM
 
 // Color del piso. El sensor va adelante del centro: lee la celda siguiente
