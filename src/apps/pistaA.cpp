@@ -1,7 +1,8 @@
 // Pista A: laberinto de 5x5 unidades. Compilar/subir con el entorno [env:pistaA].
 // Explora todo el laberinto mostrando los colores del piso, llega a la meta roja
 // y regresa al inicio por las mismas unidades (bonus 1).
-// Los ArUco que ve el celular (CVSquirtDeAga) se muestran en el LCD (vision.h).
+// LCD: fila 1 el ultimo color que da puntos, fila 2 los ArUco que ve el celular
+// (CVSquirtDeAga, vision.h).
 // La logica es la de exploreColor.cpp (probada en mms); lo que cambia es el robot:
 // paredes con los ultrasonicos, color con el TCS34725 mientras avanza y
 // movimientos con el control de movimiento.cpp.
@@ -156,9 +157,14 @@ int8_t direccionHacia(const Celda& c) {
 // ---------------------------------------------------------------------------
 // Colores
 // ---------------------------------------------------------------------------
-// Unico lugar donde se le muestra el color al juez. TODO: pantalla.
+// Unico lugar donde se le muestra el color al juez: fila 1 del LCD (se queda
+// el ultimo) y la consola. La fila 2 es de los ArUco (vision).
 void mostrarColor(int8_t c) {
   Serial.print(F(">> COLOR ")); Serial.println(NOMBRE_COLOR[c]);
+  char fila[PANTALLA_COLUMNAS + 1];
+  snprintf(fila, sizeof(fila), "Color: %s", NOMBRE_COLOR[c]);
+  for (char* p = fila; *p; p++) *p = toupper(*p);
+  pantallaFila(0, fila);
 }
 
 void registrarColor(int8_t x, int8_t y, int8_t c) {
@@ -468,7 +474,8 @@ void setup() {
   colorIniciarTodos();
   ultrasonicosIniciar();
   pantallaIniciar();
-  visionIniciar();       // anuncia "B": el celular reinicia la vision
+  visionIniciar(true);   // ArUco en la fila 2; anuncia "B": el celular reinicia la vision
+  pantallaFila(0, "Color: -");
   esperarArranque();
   correrPistaA();
 }

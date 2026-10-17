@@ -10,7 +10,8 @@ static char linea[64];
 static uint8_t largo = 0;
 static bool descartando = false;   // linea demasiado larga: ignorar hasta el siguiente '\n'
 static uint32_t tUltimoRx = 0;
-static bool vencido = false;      // ya se mostro "Sin enlace"
+static bool vencido = false;
+static bool unaFila = false;      // ya se mostro "Sin enlace"
 
 // ---- analisis de la linea (sin sscanf: la lista de ids es de longitud variable) ----
 static bool comer(const char*& p, char c) {
@@ -61,15 +62,15 @@ bool visionParsear(const char* s, VisionMsg& m) {
   return false;
 }
 
-// Fila 2: ids separados por espacio. Si no caben todos (16 columnas), los que quepan y '+'.
-static void formatoIds(const VisionMsg& m, char* out /* 17 */) {
-  if (m.n == 0) { snprintf(out, 17, "-"); return; }
+// Ids separados por espacio en `ancho` columnas. Si no caben todos, los que quepan y '+'.
+static void formatoIds(const VisionMsg& m, char* out /* ancho + 1 */, uint8_t ancho) {
+  if (m.n == 0) { snprintf(out, ancho + 1, "-"); return; }
   char tmp[8];
   uint8_t total = 0;
   for (uint8_t i = 0; i < m.n; i++) {
     total += snprintf(tmp, sizeof(tmp), "%d", m.ids[i]) + (i ? 1 : 0);
   }
-  uint8_t limite = (total <= 16) ? 16 : 15;     // si hay que cortar, se reserva sitio para '+'
+  uint8_t limite = (total <= ancho) ? ancho : ancho - 1;     // si hay que cortar, se reserva sitio para '+'
   uint8_t pos = 0, mostrados = 0;
   for (uint8_t i = 0; i < m.n; i++) {
     uint8_t necesita = snprintf(tmp, sizeof(tmp), "%d", m.ids[i]) + (i ? 1 : 0);
@@ -84,7 +85,16 @@ static void formatoIds(const VisionMsg& m, char* out /* 17 */) {
 
 void visionFormatoFilas(const VisionMsg& m, char* fila1, char* fila2) {
   snprintf(fila1, 17, "ArUco x%d Bola:%s", m.n, m.bola ? "si" : "no");
-  formatoIds(m, fila2);
+  formatoIds(m, fila2, PANTALLA_COLUMNAS);
+}
+
+static const char PREFIJO_UNA_FILA[] = "ArUco: ";
+constexpr uint8_t ANCHO_IDS_UNA_FILA = PANTALLA_COLUMNAS - (sizeof(PREFIJO_UNA_FILA) - 1);
+
+void visionFormatoUnaFila(const VisionMsg& m, char* fila /* 17 */) {
+  char ids[ANCHO_IDS_UNA_FILA + 1];
+  formatoIds(m, ids, ANCHO_IDS_UNA_FILA);
+  snprintf(fila, 17, "%s%s", PREFIJO_UNA_FILA, ids);
 }
 
 static bool mismosIds(const VisionMsg& a, const VisionMsg& b) {
@@ -109,15 +119,24 @@ static bool manejarLinea(const char* s) {
   visionEnlace = true;
   vencido = false;
   char a[17], b[17];
-  visionFormatoFilas(m, a, b);
-  pantallaFila(0, a);
+  if (unaFila) {
+    visionFormatoUnaFila(m, b);
+  } else {
+    visionFormatoFilas(m, a, b);
+    pantallaFila(0, a);
+  }
   pantallaFila(1, b);
   return true;
 }
 
-void visionIniciar() {
-  pantallaFila(0, "Enlace USB");
-  pantallaFila(1, "esperando datos");
+void visionIniciar(bool soloFila2) {
+  unaFila = soloFila2;
+  if (unaFila) {
+    pantallaFila(1, "ArUco: esperando");
+  } else {
+    pantallaFila(0, "Enlace USB");
+    pantallaFila(1, "esperando datos");
+  }
   tUltimoRx = millis();
   visionEnlace = false;
   vencido = false;
@@ -147,8 +166,12 @@ bool visionActualizar() {
     vencido = true;
     visionEnlace = false;
     Serial.println(F("!! Vision: sin enlace"));
-    pantallaFila(0, "Sin enlace");
-    pantallaFila(1, "sin datos nuevos");
+    if (unaFila) {
+      pantallaFila(1, "ArUco:sin enlace");
+    } else {
+      pantallaFila(0, "Sin enlace");
+      pantallaFila(1, "sin datos nuevos");
+    }
   }
   return nuevo;
 }
