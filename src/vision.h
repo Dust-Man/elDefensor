@@ -31,7 +31,7 @@ extern bool visionEnlace;        // false si nunca llego uno o paso VISION_TIMEO
 
 // Texto inicial del LCD y anuncio "B". Llamar al final de la inicializacion.
 // soloFila2 = false: las 2 filas como el firmware original ("ArUco x3 Bola:si" / "7 12 3").
-// soloFila2 = true: solo la fila 2 ("ArUco: 7 12 3"); la fila 1 queda libre (Pista A: color).
+// soloFila2 = true: solo la fila 2 ("Ar:7 12 3   B:si"); la fila 1 queda libre (Pista A: color).
 void visionIniciar(bool soloFila2 = false);
 // Lee lo que haya en el Serial sin bloquear y actualiza el LCD (pantallaFila).
 // true si llego un mensaje valido nuevo.

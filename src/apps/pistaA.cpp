@@ -2,7 +2,7 @@
 // Explora todo el laberinto mostrando los colores del piso, llega a la meta roja
 // y regresa al inicio por las mismas unidades (bonus 1).
 // LCD: fila 1 el ultimo color que da puntos, fila 2 los ArUco que ve el celular
-// (CVSquirtDeAga, vision.h).
+// y si ve la bola (CVSquirtDeAga, vision.h).
 // La logica es la de exploreColor.cpp (probada en mms); lo que cambia es el robot:
 // paredes con los ultrasonicos, color con el TCS34725 mientras avanza y
 // movimientos con el control de movimiento.cpp.

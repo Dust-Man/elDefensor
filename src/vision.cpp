@@ -88,13 +88,16 @@ void visionFormatoFilas(const VisionMsg& m, char* fila1, char* fila2) {
   formatoIds(m, fila2, PANTALLA_COLUMNAS);
 }
 
-static const char PREFIJO_UNA_FILA[] = "ArUco: ";
-constexpr uint8_t ANCHO_IDS_UNA_FILA = PANTALLA_COLUMNAS - (sizeof(PREFIJO_UNA_FILA) - 1);
+// "Ar:7 12 3   B:si": ids en medio, la bola siempre en las ultimas 4 columnas
+static const char PREFIJO_UNA_FILA[] = "Ar:";
+constexpr uint8_t ANCHO_BOLA_UNA_FILA = 5;   // " B:si"
+constexpr uint8_t ANCHO_IDS_UNA_FILA =
+    PANTALLA_COLUMNAS - (sizeof(PREFIJO_UNA_FILA) - 1) - ANCHO_BOLA_UNA_FILA;
 
 void visionFormatoUnaFila(const VisionMsg& m, char* fila /* 17 */) {
   char ids[ANCHO_IDS_UNA_FILA + 1];
   formatoIds(m, ids, ANCHO_IDS_UNA_FILA);
-  snprintf(fila, 17, "%s%s", PREFIJO_UNA_FILA, ids);
+  snprintf(fila, 17, "%s%-*s B:%s", PREFIJO_UNA_FILA, ANCHO_IDS_UNA_FILA, ids, m.bola ? "si" : "no");
 }
 
 static bool mismosIds(const VisionMsg& a, const VisionMsg& b) {
