@@ -125,7 +125,7 @@ constexpr float ALINEAR_MAX_CM = 6.0f;          // errores mayores se ignoran (l
 // Tras un giro de 180 el robot queda corrido (no gira justo sobre su centro):
 // se acomoda con la pared que ahora le queda atras (la que tenia enfrente).
 constexpr bool ALINEAR_CON_ATRAS = true;
-constexpr float US_ATRAS_OBJETIVO_CM = 5.5f;    // MEDIR con 'um': lectura de atras con el robot centrado
+constexpr float US_ATRAS_OBJETIVO_CM = 7.0f;    // MEDIR con 'um': lectura de atras con el robot centrado
 constexpr float ALINEAR_ATRAS_MAX_CM = 10.0f;   // el corrimiento del giro puede ser mayor que ALINEAR_MAX_CM
 
 // Color del piso. El sensor va adelante del centro: lee la celda siguiente
